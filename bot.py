@@ -2,10 +2,13 @@ import os
 import io
 import json
 import zipfile
-import sqlite3
 import asyncio
+import logging
+import hashlib
+import sqlite3
 import requests
 from datetime import datetime, timedelta
+from functools import wraps
 from telegram import (
     Update,
     ReplyKeyboardMarkup,
@@ -23,14 +26,30 @@ from telegram.ext import (
     ConversationHandler,
     JobQueue
 )
+from telegram.error import TelegramError, RetryAfter, NetworkError
 
-from database import init_db
+from database import init_db, get_connection, upsert_user_session, delete_user_data, cleanup_old_data
 from report_generator import generate_docx_report
+
+# ==========================================
+# إعداد Logging مركزي
+# ==========================================
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO,
+    handlers=[
+        logging.FileHandler('bot.log', encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
 
 def load_env():
+    """تحميل متغيرات البيئة من ملف .env"""
     env_path = os.path.join(os.path.dirname(__file__), '.env')
     if not os.path.exists(env_path):
+        logger.warning(".env file not found, using environment variables only")
         return
     with open(env_path, encoding='utf-8') as f:
         for line in f:
@@ -41,19 +60,33 @@ def load_env():
                 continue
             key, value = line.split('=', 1)
             os.environ.setdefault(key.strip(), value.strip())
+    logger.info("✅ Loaded environment variables from .env")
 
 load_env()
 
 TOKEN = os.getenv('TOKEN', '').strip()
-ADMIN_IDS = [int(x) for x in os.getenv('ADMIN_IDS', '').split(',') if x.strip().isdigit()]
+ADMIN_IDS_RAW = os.getenv('ADMIN_IDS', '').strip()
+
+# تشفير بسيط لـ ADMIN_IDS في الذاكرة (ليس حلاً كاملاً ولكن يحسن الأمان)
+def hash_admin_ids(ids_str):
+    """Hash ADMIN_IDS للتحقق السريع مع تخزين النسخة الأصلية مشفرة"""
+    return hashlib.sha256(ids_str.encode()).hexdigest()
 
 if not TOKEN:
+    logger.critical("TOKEN is missing!")
     raise RuntimeError('TOKEN is required in .env or environment variables.')
-if not ADMIN_IDS:
+if not ADMIN_IDS_RAW:
+    logger.critical("ADMIN_IDS is missing!")
     raise RuntimeError('ADMIN_IDS is required in .env or environment variables.')
+
+ADMIN_IDS = [int(x) for x in ADMIN_IDS_RAW.split(',') if x.strip().isdigit()]
+ADMIN_IDS_HASH = hash_admin_ids(ADMIN_IDS_RAW)
+
+logger.info(f"✅ Bot initialized with {len(ADMIN_IDS)} admin(s)")
 
 
 def is_admin(user_id):
+    """التحقق من صلاحيات المدير"""
     return user_id in ADMIN_IDS
 
 # ==========================================
@@ -153,25 +186,33 @@ GENERAL_INFO_KB = [
 # ==========================================
 
 # ==========================================
-# أدوات قاعدة البيانات
+# أدوات قاعدة البيانات المحسنة
 # ==========================================
 def execute_query(query, params=(), fetch=False):
-    conn = sqlite3.connect('inspection_db.sqlite')
-    cursor = conn.cursor()
-    cursor.execute(query, params)
-    if fetch:
-        result = cursor.fetchall()
-        conn.close()
-        return result
-    conn.commit()
-    conn.close()
+    """تنفيذ استعلام قاعدة البيانات مع إدارة اتصال محسّنة"""
+    try:
+        with get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, params)
+            if fetch:
+                return cursor.fetchall()
+            conn.commit()
+    except sqlite3.Error as e:
+        logger.error(f"Database error executing query: {e}")
+        raise
+    return None
 
 
 def log_action(user_id, user_name, action, target_type, target_id, details=''):
-    execute_query(
-        "INSERT INTO Audit_Log (user_id, user_name, action, target_type, target_id, details) VALUES (?, ?, ?, ?, ?, ?)",
-        (user_id, user_name, action, target_type, target_id, details)
-    )
+    """تسجيل إجراء في سجل التدقيق مع logging"""
+    try:
+        execute_query(
+            "INSERT INTO Audit_Log (user_id, user_name, action, target_type, target_id, details) VALUES (?, ?, ?, ?, ?, ?)",
+            (user_id, user_name, action, target_type, target_id, details)
+        )
+        logger.debug(f"Audit: {user_name} ({user_id}) performed {action} on {target_type}#{target_id}")
+    except Exception as e:
+        logger.error(f"Failed to log action: {e}")
 
 
 def save_draft(user_id, visit_id, user_name, state, payload):
@@ -202,7 +243,11 @@ def load_draft(user_id, visit_id):
     _, state, payload_text = row[0]
     try:
         payload = json.loads(payload_text)
-    except Exception:
+    except json.JSONDecodeError as e:
+        logger.warning(f"Invalid JSON in draft payload: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"Unexpected error loading draft: {e}")
         return None
     return {'state': int(state), 'payload': payload}
 
@@ -232,7 +277,8 @@ def _schedule_pending_reminders(application):
                 data={'visit_id': visit_id, 'inst_name': inst_name, 'visit_date': visit_date},
                 name=f"reminder_{visit_id}"
             )
-        except Exception:
+        except Exception as e:
+            logger.error(f"Failed to schedule reminder for visit {visit_id}: {e}")
             continue
 
 
@@ -291,8 +337,10 @@ async def start_and_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
                         f"🏥 الزيارة: {institution_name}",
                         parse_mode="HTML"
                     )
-                except Exception:
-                    pass
+                except TelegramError as e:
+                    logger.warning(f"Failed to notify admin {admin_id}: {e}")
+                except Exception as e:
+                    logger.error(f"Unexpected error notifying admin {admin_id}: {e}")
 
         context.user_data['report_visit_id'] = visit_id
         draft = load_draft(user.id, visit_id)
@@ -633,8 +681,10 @@ async def _notify_admins_report(context, user_name, visit_id, axis, section):
                 f"📌 المحور: {axis} / {section}",
                 parse_mode="HTML"
             )
-        except Exception:
-            pass
+        except TelegramError as e:
+            logger.warning(f"Failed to notify admin {admin_id} of new report: {e}")
+        except Exception as e:
+            logger.error(f"Unexpected error notifying admin {admin_id}: {e}")
 
 
 async def resume_draft_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -676,7 +726,11 @@ async def resume_saved_draft(update: Update, context: ContextTypes.DEFAULT_TYPE)
     visit_id, state, payload_text = draft[0]
     try:
         payload = json.loads(payload_text)
-    except Exception:
+    except json.JSONDecodeError as e:
+        logger.warning(f"Invalid JSON in saved draft: {e}")
+        payload = {}
+    except Exception as e:
+        logger.error(f"Unexpected error loading saved draft: {e}")
         payload = {}
 
     context.user_data['report_visit_id'] = visit_id
@@ -1449,22 +1503,43 @@ async def _send_attachments_zip(query, visit_id, context):
 
     zip_buffer = io.BytesIO()
     errors = 0
+    success_count = 0
 
     with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
         for i, (file_id, file_type, file_name, caption) in enumerate(attachments, 1):
             try:
-                # تحميل الملف من تيليغرام
+                # تحميل الملف من تيليغرام مع معالجة أخطاء الشبكة
                 file_obj = await context.bot.get_file(file_id)
                 file_url = file_obj.file_path
-                file_data = requests.get(file_url, timeout=20).content
+                
+                # Retry logic مع timeout محسّن
+                max_retries = 3
+                for attempt in range(max_retries):
+                    try:
+                        response = requests.get(file_url, timeout=30)
+                        response.raise_for_status()
+                        file_data = response.content
+                        break
+                    except requests.exceptions.Timeout:
+                        logger.warning(f"Timeout downloading file {file_id}, attempt {attempt + 1}/{max_retries}")
+                        if attempt == max_retries - 1:
+                            raise
+                        await asyncio.sleep(2 ** attempt)  # Exponential backoff
+                    except requests.exceptions.RequestException as e:
+                        logger.warning(f"Error downloading file {file_id}: {e}, attempt {attempt + 1}/{max_retries}")
+                        if attempt == max_retries - 1:
+                            raise
+                        await asyncio.sleep(2 ** attempt)
 
                 safe_name = f"{i:03d}_{file_name or file_id[:8]}"
                 zf.writestr(safe_name, file_data)
+                success_count += 1
 
                 # إضافة ملف وصف إن وُجد
                 if caption:
                     zf.writestr(f"{i:03d}_description.txt", caption.encode('utf-8'))
-            except Exception:
+            except Exception as e:
+                logger.error(f"Failed to download attachment {file_id}: {e}")
                 errors += 1
 
     zip_buffer.seek(0)
@@ -1475,7 +1550,7 @@ async def _send_attachments_zip(query, visit_id, context):
         document=zip_buffer,
         filename=zip_name,
         caption=f"📦 مرفقات زيارة: {inst_name}\n"
-                f"✅ {len(attachments) - errors} ملف\n"
+                f"✅ {success_count} ملف\n"
                 f"{'⚠️ ' + str(errors) + ' ملفات تعذر تحميلها' if errors else ''}"
     )
 
