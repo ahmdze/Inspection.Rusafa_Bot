@@ -1,0 +1,7 @@
+python-telegram-bot==20.7
+sqlite3
+psycopg2-binary
+python-docx
+requests
+python-dotenv
+pytest
