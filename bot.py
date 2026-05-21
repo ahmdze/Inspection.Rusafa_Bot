@@ -1,5 +1,6 @@
 import os
 import io
+import json
 import zipfile
 import sqlite3
 import asyncio
@@ -26,23 +27,51 @@ from telegram.ext import (
 from database import init_db
 from report_generator import generate_docx_report
 
-TOKEN = "8767469034:AAGwQ5iDI5rRH6RWxJJAxZDXvwPzU54gZiw"   # 🔴 ضع التوكن هنا
-ADMIN_IDS = [5372786095, ]                                   # 🔴 أرقام المدراء
+
+def load_env():
+    env_path = os.path.join(os.path.dirname(__file__), '.env')
+    if not os.path.exists(env_path):
+        return
+    with open(env_path, encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            if '=' not in line:
+                continue
+            key, value = line.split('=', 1)
+            os.environ.setdefault(key.strip(), value.strip())
+
+load_env()
+
+TOKEN = os.getenv('TOKEN', '').strip()
+ADMIN_IDS = [int(x) for x in os.getenv('ADMIN_IDS', '').split(',') if x.strip().isdigit()]
+
+if not TOKEN:
+    raise RuntimeError('TOKEN is required in .env or environment variables.')
+if not ADMIN_IDS:
+    raise RuntimeError('ADMIN_IDS is required in .env or environment variables.')
+
+
+def is_admin(user_id):
+    return user_id in ADMIN_IDS
 
 # ==========================================
 # حالات المحادثة
 # ==========================================
 INSTITUTION_NAME, VISIT_DATE, SCHEDULE_DATE = range(3)
-AXIS_NAME, SECTION_NAME, NOTES, REC_DESTINATION, RECOMMENDATIONS, LOOP_OR_END = range(10, 16)
+AXIS_NAME, SECTION_NAME, NOTES, NOTE_CONFIRM, REC_DESTINATION, RECOMMENDATIONS, LOOP_OR_END = range(10, 17)
 SEARCH_QUERY = 30
 ATTACHMENT_CAPTION = 40
+DRAFT_RESUME = 50
 
 # ==========================================
 # القوائم الثابتة
 # ==========================================
 ADMIN_MENU_KB = [
     ["➕ إنشاء زيارة جديدة", "📋 إدارة الزيارات"],
-    ["📊 الإحصائيات", "🔍 البحث عن زيارة"]
+    ["📊 الإحصائيات", "🔍 البحث عن زيارة"],
+    ["🗂 سجل العمليات"]
 ]
 MEMBER_MENU_KB = [["➕ إرسال رد آخر"]]
 
@@ -52,23 +81,62 @@ AXES_LIST = [
     ["المحور الإداري"],
     ["المحور الهندسي"]
 ]
-GENERAL_INFO_KB = [
-    ["المدير:", "الرديف (للمدير):"],
-    ["المعاون الاداري (مسؤول الوحدة الادارية):", "الرديف (للمعاون):"],
-    ["عدد الملاك الكلي:", "عدد الملاك الفعلي:"],
-    ["عدد الاطباء الكلي:", "عدد الاطباء الفعلي:"],
-    ["عدد اطباء الاسنان الكلي:", "عدد اطباء الاسنان الفعلي:"],
-    ["عدد الصيادلة الكلي:", "عدد الصيادلة الفعلي:"],
-    ["عدد النفوس:", "عدد العوائل:"]
-]
+
+SECTION_PRESETS = {
+    "المحور الفني": [
+        ["الأطباء"],
+        ["الصيدلية"],
+        ["المختبر"],
+        ["الأشعة"],
+        ["التمريض"],
+        ["اكتب اسم القسم يدوياً"]
+    ],
+    "المحور الإداري": [
+        ["الإدارة والسجلات"],
+        ["وحدة البصمة"],
+        ["اكتب اسم القسم يدوياً"]
+    ],
+    "المحور الهندسي": [
+        ["الاجهزة الطبية"],
+        ["الصيانة"],
+        ["الدفاع المدني"],
+        ["اكتب اسم القسم يدوياً"]
+    ]
+}
 DESTINATIONS_LIST = [
     ["الإيعاز الى ادارة المستشفى بما يلي:"],
     ["الإيعاز الى ادارة القطاع بما يلي:"],
     ["الإيعاز الى ادارة المركز بما يلي:"],
     ["الإيعاز الى قسم الامور الادارية والقانونية والمالية بما يلي:"],
-    ["الإيعاز الى شعبة التحقيقات/ قسمنا بما يلي:"]
+    ["الإيعاز الى شعبة التحقيقات/ قسمنا بما يلي:"],
+    ["اكتب جهة الإيعاز يدوياً"],
+    ["لا توجد توصية"]
+
 ]
-DESTINATIONS_FLAT = [d[0] for d in DESTINATIONS_LIST]
+DESTINATIONS_FLAT = [item for sublist in DESTINATIONS_LIST for item in sublist]
+
+GENERAL_INFO_KB = [
+    ["اسم المدير"],
+    ["رقم الهاتف"],
+    ["رديف المدير"],
+    ["المعاون الإداري (مسؤول الذاتية والأفراد)"],
+    ["الرديف"],
+    ["الملاك الكلي"],
+    ["الملاك الفعلي"],
+    ["عدد الاطباء الكلي"],
+    ["عدد الاطباء الفعلي"],
+    ["عدد اطباء الاسنان الكلي"],
+    ["عدد اطباء الاسنان الفعلي"],
+    ["عدد الصيادلة الكلي"],
+    ["عدد الصيادلة الفعلي"],
+    ["عدد الافراد"],
+    ["عدد العوائل"],
+    ["اكتب اسم القسم يدوياً"],
+    ["رجوع الى القائمة الرئيسية"]
+]
+# ==========================================
+# حالات المحادثة
+# ==========================================
 
 # ==========================================
 # أدوات قاعدة البيانات
@@ -84,8 +152,75 @@ def execute_query(query, params=(), fetch=False):
     conn.commit()
     conn.close()
 
-def is_admin(user_id):
-    return user_id in ADMIN_IDS
+
+def log_action(user_id, user_name, action, target_type, target_id, details=''):
+    execute_query(
+        "INSERT INTO Audit_Log (user_id, user_name, action, target_type, target_id, details) VALUES (?, ?, ?, ?, ?, ?)",
+        (user_id, user_name, action, target_type, target_id, details)
+    )
+
+
+def save_draft(user_id, visit_id, user_name, state, payload):
+    payload_text = json.dumps(payload, ensure_ascii=False)
+    existing = execute_query(
+        "SELECT id FROM Drafts WHERE visit_id = ? AND user_id = ?",
+        (visit_id, user_id), fetch=True
+    )
+    if existing:
+        execute_query(
+            "UPDATE Drafts SET state = ?, payload = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (str(state), payload_text, existing[0][0])
+        )
+    else:
+        execute_query(
+            "INSERT INTO Drafts (visit_id, user_id, user_name, state, payload) VALUES (?, ?, ?, ?, ?)",
+            (visit_id, user_id, user_name, str(state), payload_text)
+        )
+
+
+def load_draft(user_id, visit_id):
+    row = execute_query(
+        "SELECT id, state, payload FROM Drafts WHERE visit_id = ? AND user_id = ?",
+        (visit_id, user_id), fetch=True
+    )
+    if not row:
+        return None
+    _, state, payload_text = row[0]
+    try:
+        payload = json.loads(payload_text)
+    except Exception:
+        return None
+    return {'state': int(state), 'payload': payload}
+
+
+def delete_draft(user_id, visit_id):
+    execute_query("DELETE FROM Drafts WHERE visit_id = ? AND user_id = ?", (visit_id, user_id))
+
+
+def _format_datetime(dt):
+    return dt.strftime('%Y-%m-%d %H:%M')
+
+
+def _schedule_pending_reminders(application):
+    rows = execute_query(
+        "SELECT id, institution_name, visit_date, scheduled_date FROM Visits WHERE scheduled_date IS NOT NULL AND reminder_sent = 0 AND status = 'مفتوحة'",
+        fetch=True
+    )
+    for visit_id, inst_name, visit_date, scheduled_date in rows:
+        try:
+            scheduled_dt = datetime.strptime(scheduled_date, "%Y-%m-%d %H:%M")
+            delay = (scheduled_dt - datetime.now()).total_seconds()
+            if delay < 0:
+                delay = 1
+            application.job_queue.run_once(
+                send_visit_reminder,
+                when=delay,
+                data={'visit_id': visit_id, 'inst_name': inst_name, 'visit_date': visit_date},
+                name=f"reminder_{visit_id}"
+            )
+        except Exception:
+            continue
+
 
 def admin_required(func):
     """Decorator للتحقق من صلاحية المدير"""
@@ -146,6 +281,20 @@ async def start_and_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     pass
 
         context.user_data['report_visit_id'] = visit_id
+        draft = load_draft(user.id, visit_id)
+        if draft:
+            context.user_data['pending_draft'] = draft
+            await update.message.reply_text(
+                f"✅ تم دخولك إلى زيارة: <b>{institution_name}</b>\n\n"
+                "لديك مسودة محفوظة. هل تريد استكمالها أم البدء جديداً؟",
+                reply_markup=ReplyKeyboardMarkup(
+                    [["استكمال المسودة"], ["بدء جديد"]],
+                    one_time_keyboard=True, resize_keyboard=True
+                ),
+                parse_mode="HTML"
+            )
+            return DRAFT_RESUME
+
         await update.message.reply_text(
             f"✅ تم دخولك إلى زيارة: <b>{institution_name}</b>\n\n"
             f"اختر <b>المحور</b> المطلوب:",
@@ -184,6 +333,19 @@ async def start_another_report(update: Update, context: ContextTypes.DEFAULT_TYP
 
     visit_id, institution_name = visit[0]
     context.user_data['report_visit_id'] = visit_id
+    draft = load_draft(user_id, visit_id)
+    if draft:
+        context.user_data['pending_draft'] = draft
+        await update.message.reply_text(
+            f"✅ استئناف الإدخال لزيارة: <b>{institution_name}</b>\n\n"
+            "لديك مسودة محفوظة. هل تريد استكمالها أم البدء جديداً؟",
+            reply_markup=ReplyKeyboardMarkup(
+                [["استكمال المسودة"], ["بدء جديد"]],
+                one_time_keyboard=True, resize_keyboard=True
+            ),
+            parse_mode="HTML"
+        )
+        return DRAFT_RESUME
 
     await update.message.reply_text(
         f"✅ استئناف الإدخال لزيارة: <b>{institution_name}</b>\n\nاختر <b>المحور</b>:",
@@ -211,15 +373,31 @@ async def get_axis_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=ReplyKeyboardMarkup(GENERAL_INFO_KB, resize_keyboard=True)
         )
     else:
+        section_kb = SECTION_PRESETS.get(axis, [["اكتب اسم القسم يدوياً"]])
         await update.message.reply_text(
-            "📂 اكتب اسم <b>القسم</b>:",
-            reply_markup=ReplyKeyboardRemove(), parse_mode="HTML"
+            "📂 اختر قسماً متكرراً أو اكتب اسم القسم:",
+            reply_markup=ReplyKeyboardMarkup(section_kb, one_time_keyboard=True, resize_keyboard=True)
         )
     return SECTION_NAME
 
 
 async def get_section_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['current_section'] = update.message.text
+    section_text = update.message.text.strip()
+    if section_text == "رجوع الى القائمة الرئيسية":
+        await update.message.reply_text(
+            "✅ عدت إلى قائمة المحاور. اختر المحور المطلوب:",
+            reply_markup=ReplyKeyboardMarkup(AXES_LIST, one_time_keyboard=True, resize_keyboard=True)
+        )
+        return AXIS_NAME
+
+    if section_text == "اكتب اسم القسم يدوياً":
+        await update.message.reply_text(
+            "📂 اكتب اسم القسم:",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        return SECTION_NAME
+
+    context.user_data['current_section'] = section_text
     if context.user_data['current_axis'] == "المعلومات العامة":
         await update.message.reply_text(
             f"🔢 أدخل القيمة لـ <b>{context.user_data['current_section']}</b>:",
@@ -234,56 +412,152 @@ async def get_section_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def get_notes(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['current_notes'] = update.message.text
-    if context.user_data['current_axis'] == "المعلومات العامة":
+    context.user_data['current_notes'] = update.message.text.strip()
+    if context.user_data.get('current_axis') == "المعلومات العامة":
         execute_query(
             "INSERT INTO Reports (visit_id, user_id, axis_name, section_name, notes, rec_destination, recommendations) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (context.user_data['report_visit_id'], update.effective_user.id,
              context.user_data['current_axis'], context.user_data['current_section'],
              context.user_data['current_notes'], "", "")
         )
-        # 🔔 إشعار المدير
         await _notify_admins_report(context, update.effective_user.full_name,
                                     context.user_data['report_visit_id'],
                                     context.user_data['current_axis'],
                                     context.user_data['current_section'])
         await update.message.reply_text(
-            "✅ تم حفظ المعلومة!\nهل تود إضافة المزيد؟",
+            "✅ تم حفظ المعلومة!\nاختر حقلاً آخر من المعلومات العامة:",
+            reply_markup=ReplyKeyboardMarkup(GENERAL_INFO_KB, resize_keyboard=True),
+            parse_mode="HTML"
+        )
+        return SECTION_NAME
+
+    await update.message.reply_text(
+        f"📌 الملاحظة:\n{context.user_data['current_notes']}\n\nهل تود اعتمادها أم تعديلها؟",
+        reply_markup=ReplyKeyboardMarkup(
+            [["✅ حفظ الملاحظة"], ["✏️ تعديل الملاحظة"]],
+            one_time_keyboard=True, resize_keyboard=True
+        )
+    )
+    return NOTE_CONFIRM
+
+
+async def confirm_note_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    choice = update.message.text
+    if choice == "✏️ تعديل الملاحظة":
+        await update.message.reply_text("✍️ حسناً، أعد كتابة الملاحظة أو القيمة:")
+        return NOTES
+
+    if choice != "✅ حفظ الملاحظة":
+        await update.message.reply_text(
+            "⚠️ اختر إما حفظ الملاحظة أو تعديلها.",
             reply_markup=ReplyKeyboardMarkup(
-                [["➕ إضافة قسم آخر"], ["📎 إرفاق صورة/ملف"], ["🛑 إنهاء الإدخال"]],
+                [["✅ حفظ الملاحظة"], ["✏️ تعديل الملاحظة"]],
                 one_time_keyboard=True, resize_keyboard=True
             )
         )
-        return LOOP_OR_END
+        return NOTE_CONFIRM
 
     await update.message.reply_text(
         "🎯 لمن تود توجيه التوصية؟",
         reply_markup=ReplyKeyboardMarkup(DESTINATIONS_LIST, one_time_keyboard=True, resize_keyboard=True)
     )
+    context.user_data['current_recommendations'] = []
     return REC_DESTINATION
 
 
 async def get_rec_destination(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    dest = update.message.text
-    if dest not in DESTINATIONS_FLAT:
+    text = update.message.text.strip()
+
+    # If we previously asked the user to type a custom destination, accept any text now
+    if context.user_data.get('awaiting_custom_destination'):
+        dest = text
+        context.user_data.pop('awaiting_custom_destination', None)
+        context.user_data['current_rec_dest'] = dest
+        context.user_data['current_recommendations'] = []
+        await update.message.reply_text(
+            "💡 اكتب نص التوصية الأولى أو أرسل (لا توجد توصية):",
+            reply_markup=ReplyKeyboardMarkup([["لا توجد توصية"]], one_time_keyboard=True, resize_keyboard=True),
+            parse_mode="HTML"
+        )
+        return RECOMMENDATIONS
+
+    # If user chose to write destination manually, prompt for it
+    if text == "اكتب جهة الإيعاز يدوياً":
+        context.user_data['awaiting_custom_destination'] = True
+        await update.message.reply_text(
+            "📌 اكتب جهة الإيعاز يدوياً:",
+            reply_markup=ReplyKeyboardRemove()
+        )
         return REC_DESTINATION
+
+    # Allow saving draft while selecting destination
+    if text == "💾 حفظ كمسودة":
+        user = update.effective_user
+        visit_id = context.user_data.get('report_visit_id')
+        save_draft(user.id, visit_id, user.full_name, REC_DESTINATION, context.user_data)
+        await update.message.reply_text(
+            "💾 تم حفظ المسودة! يمكنك العودة لاحقاً لاستكمالها.",
+            reply_markup=ReplyKeyboardMarkup(MEMBER_MENU_KB if not is_admin(user.id) else ADMIN_MENU_KB, resize_keyboard=True)
+        )
+        return ConversationHandler.END
+
+    dest = text
+    if dest not in DESTINATIONS_FLAT:
+        await update.message.reply_text(
+            "⚠️ اختر جهة توجيه صحيحة:",
+            reply_markup=ReplyKeyboardMarkup(DESTINATIONS_LIST, one_time_keyboard=True, resize_keyboard=True)
+        )
+        return REC_DESTINATION
+
     context.user_data['current_rec_dest'] = dest
+    context.user_data['current_recommendations'] = []
     await update.message.reply_text(
-        "💡 اكتب <b>نص التوصية والحل المقترح</b>:",
-        reply_markup=ReplyKeyboardRemove(), parse_mode="HTML"
+        "💡 اكتب نص التوصية الأولى أو أرسل (لا توجد توصية):",
+        reply_markup=ReplyKeyboardMarkup([["لا توجد توصية"]], one_time_keyboard=True, resize_keyboard=True),
+        parse_mode="HTML"
     )
     return RECOMMENDATIONS
 
 
 async def get_recommendations(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    current_recs = context.user_data.get('current_recommendations', [])
+
+    if text == "لا توجد توصية":
+        recommendation_text = ""
+        await _save_report_entry(update, context, recommendation_text)
+        return LOOP_OR_END
+
+    if text == "✅ إنهاء التوصيات":
+        if not current_recs:
+            await update.message.reply_text(
+                "⚠️ أرسل توصية واحدة على الأقل أو اختر (لا توجد توصية)."
+            )
+            return RECOMMENDATIONS
+        recommendation_text = "\n".join(f"- {r}" for r in current_recs)
+        await _save_report_entry(update, context, recommendation_text)
+        return LOOP_OR_END
+
+    current_recs.append(text)
+    context.user_data['current_recommendations'] = current_recs
+    await update.message.reply_text(
+        "✅ تمت إضافة التوصية. أرسل توصية أخرى أو اضغط (✅ إنهاء التوصيات).",
+        reply_markup=ReplyKeyboardMarkup(
+            [["✅ إنهاء التوصيات"], ["لا توجد توصية"]],
+            one_time_keyboard=True, resize_keyboard=True
+        )
+    )
+    return RECOMMENDATIONS
+
+
+async def _save_report_entry(update: Update, context: ContextTypes.DEFAULT_TYPE, recommendations_text: str):
     execute_query(
         "INSERT INTO Reports (visit_id, user_id, axis_name, section_name, notes, rec_destination, recommendations) VALUES (?, ?, ?, ?, ?, ?, ?)",
         (context.user_data['report_visit_id'], update.effective_user.id,
          context.user_data['current_axis'], context.user_data['current_section'],
          context.user_data['current_notes'], context.user_data['current_rec_dest'],
-         update.message.text)
+         recommendations_text)
     )
-    # 🔔 إشعار المدير
     await _notify_admins_report(context, update.effective_user.full_name,
                                 context.user_data['report_visit_id'],
                                 context.user_data['current_axis'],
@@ -291,11 +565,10 @@ async def get_recommendations(update: Update, context: ContextTypes.DEFAULT_TYPE
     await update.message.reply_text(
         "📥 تم الحفظ!\nهل تود إضافة المزيد؟",
         reply_markup=ReplyKeyboardMarkup(
-            [["➕ إضافة قسم آخر"], ["📎 إرفاق صورة/ملف"], ["🛑 إنهاء الإدخال"]],
+            [["➕ إضافة قسم آخر"], ["📎 إرفاق صورة/ملف"], ["💾 حفظ كمسودة"], ["🛑 إنهاء الإدخال"]],
             one_time_keyboard=True, resize_keyboard=True
         )
     )
-    return LOOP_OR_END
 
 
 async def _notify_admins_report(context, user_name, visit_id, axis, section):
@@ -312,6 +585,105 @@ async def _notify_admins_report(context, user_name, visit_id, axis, section):
                 f"👤 المُرسل: {user_name}\n"
                 f"🏥 الزيارة: {inst}\n"
                 f"📌 المحور: {axis} / {section}",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+
+
+async def resume_draft_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    choice = update.message.text
+    draft = context.user_data.get('pending_draft')
+    if not draft:
+        await update.message.reply_text("⚠️ لا توجد مسودة للاستكمال.")
+        return ConversationHandler.END
+
+    if choice == "استكمال المسودة":
+        context.user_data.update(draft['payload'])
+        await update.message.reply_text(
+            "✅ استؤنفت المسودة. تابع من حيث توقفت.",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        return await _resume_draft_state(update, context, draft['state'])
+
+    delete_draft(update.effective_user.id, context.user_data['report_visit_id'])
+    await update.message.reply_text(
+        "✅ تم بدء إدخال جديد.",
+        reply_markup=ReplyKeyboardMarkup(AXES_LIST, one_time_keyboard=True, resize_keyboard=True)
+    )
+    return AXIS_NAME
+
+
+async def _resume_draft_state(update: Update, context: ContextTypes.DEFAULT_TYPE, state: int):
+    if state == AXIS_NAME:
+        await update.message.reply_text(
+            "اختر <b>المحور</b> المطلوب:",
+            reply_markup=ReplyKeyboardMarkup(AXES_LIST, one_time_keyboard=True, resize_keyboard=True),
+            parse_mode="HTML"
+        )
+        return AXIS_NAME
+    if state == SECTION_NAME:
+        axis = context.user_data.get('current_axis', "المحور الفني")
+        section_kb = SECTION_PRESETS.get(axis, [["اكتب اسم القسم يدوياً"]])
+        await update.message.reply_text(
+            "📂 اختر قسماً متكرراً أو اكتب اسم القسم:",
+            reply_markup=ReplyKeyboardMarkup(section_kb, one_time_keyboard=True, resize_keyboard=True)
+        )
+        return SECTION_NAME
+    if state == NOTES:
+        await update.message.reply_text(
+            "🔍 أرسل الملاحظة التفتيشية لهذا القسم:",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        return NOTES
+    if state == REC_DESTINATION:
+        await update.message.reply_text(
+            "🎯 لمن تود توجيه التوصية؟",
+            reply_markup=ReplyKeyboardMarkup(DESTINATIONS_LIST, one_time_keyboard=True, resize_keyboard=True)
+        )
+        return REC_DESTINATION
+    if state == RECOMMENDATIONS:
+        await update.message.reply_text(
+            "💡 أرسل نص التوصية أو اختر (لا توجد توصية):",
+            reply_markup=ReplyKeyboardMarkup(
+                [["لا توجد توصية"]], one_time_keyboard=True, resize_keyboard=True
+            )
+        )
+        return RECOMMENDATIONS
+    if state == LOOP_OR_END:
+        await update.message.reply_text(
+            "✅ استمر أو أنهِ الإدخال:",
+            reply_markup=ReplyKeyboardMarkup(
+                [["➕ إضافة قسم آخر"], ["📎 إرفاق صورة/ملف"], ["💾 حفظ كمسودة"], ["🛑 إنهاء الإدخال"]],
+                one_time_keyboard=True, resize_keyboard=True
+            )
+        )
+        return LOOP_OR_END
+    await update.message.reply_text(
+        "✅ تابع متى شئت.",
+        reply_markup=ReplyKeyboardRemove()
+    )
+    return AXIS_NAME
+
+
+async def _notify_admins_entry_summary(update: Update, context: ContextTypes.DEFAULT_TYPE, user_name: str, visit_id: int):
+    visit_info = execute_query("SELECT institution_name FROM Visits WHERE id = ?", (visit_id,), fetch=True)
+    if not visit_info:
+        return
+    inst_name = visit_info[0][0]
+    count = execute_query(
+        "SELECT COUNT(*) FROM Reports WHERE visit_id = ? AND user_id = ?",
+        (visit_id, update.effective_user.id), fetch=True
+    )
+    total = count[0][0] if count else 0
+    for admin_id in ADMIN_IDS:
+        try:
+            await context.bot.send_message(
+                admin_id,
+                f"📌 <b>انتهى إدخال عضو</b>\n"
+                f"👤 {user_name}\n"
+                f"🏥 {inst_name}\n"
+                f"📝 عدد الملاحظات التي أرسلها: {total}",
                 parse_mode="HTML"
             )
         except Exception:
@@ -337,6 +709,15 @@ async def process_loop_choice(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return ATTACHMENT_CAPTION
 
+    elif choice == "💾 حفظ كمسودة":
+        user = update.effective_user
+        save_draft(user.id, context.user_data['report_visit_id'], user.full_name, LOOP_OR_END, context.user_data)
+        await update.message.reply_text(
+            "💾 تم حفظ المسودة! يمكنك العودة لاحقاً لاستكمالها.",
+            reply_markup=ReplyKeyboardMarkup(MEMBER_MENU_KB if not is_admin(user.id) else ADMIN_MENU_KB, resize_keyboard=True)
+        )
+        return ConversationHandler.END
+
     else:
         if is_admin(update.effective_user.id):
             await update.message.reply_text(
@@ -348,6 +729,8 @@ async def process_loop_choice(update: Update, context: ContextTypes.DEFAULT_TYPE
                 "✅ تم إرسال تقريرك بنجاح. شكراً لجهودك.",
                 reply_markup=ReplyKeyboardMarkup(MEMBER_MENU_KB, resize_keyboard=True)
             )
+        await _notify_admins_entry_summary(update, context, update.effective_user.full_name, context.user_data['report_visit_id'])
+        delete_draft(update.effective_user.id, context.user_data['report_visit_id'])
         return ConversationHandler.END
 
 
@@ -424,16 +807,24 @@ async def create_visit_start(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def get_institution_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['inst_name'] = update.message.text
-    await update.message.reply_text("📅 أرسل تاريخ الزيارة (مثال: 2025-06-01):")
+    context.user_data['inst_name'] = update.message.text.strip()
+    await update.message.reply_text("📅 أرسل تاريخ الزيارة بصيغة YYYY-MM-DD (مثال: 2025-06-01):")
     return VISIT_DATE
 
 
 async def get_visit_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['visit_date'] = update.message.text
+    text = update.message.text.strip()
+    try:
+        visit_dt = datetime.strptime(text, "%Y-%m-%d")
+        context.user_data['visit_date'] = visit_dt.strftime("%Y-%m-%d")
+    except ValueError:
+        await update.message.reply_text("⚠️ صيغة التاريخ غير صحيحة. أرسل التاريخ بصيغة YYYY-MM-DD:")
+        return VISIT_DATE
+
     await update.message.reply_text(
         "⏰ هل تريد جدولة تذكير لهذه الزيارة؟\n"
-        "أرسل تاريخ ووقت التذكير (مثال: 2025-06-01 08:00)\nأو أرسل (لا) للتخطي:",
+        "أرسل تاريخ ووقت التذكير بصيغة YYYY-MM-DD HH:MM (مثال: 2025-06-01 08:00)\n"
+        "أو أرسل (لا) للتخطي:",
     )
     return SCHEDULE_DATE
 
@@ -442,14 +833,17 @@ async def get_schedule_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     inst_name = context.user_data['inst_name']
     visit_date = context.user_data['visit_date']
-    scheduled_date = None
 
+    scheduled_date = None
     if text.lower() != "لا":
         try:
             scheduled_dt = datetime.strptime(text, "%Y-%m-%d %H:%M")
             scheduled_date = scheduled_dt.strftime("%Y-%m-%d %H:%M")
         except ValueError:
-            await update.message.reply_text("⚠️ صيغة التاريخ غير صحيحة. سيتم تخطي الجدولة.")
+            await update.message.reply_text(
+                "⚠️ صيغة التذكير غير صحيحة. أرسل التاريخ والوقت بصيغة YYYY-MM-DD HH:MM أو أرسل (لا)."
+            )
+            return SCHEDULE_DATE
 
     conn = sqlite3.connect('inspection_db.sqlite')
     cursor = conn.cursor()
@@ -461,18 +855,18 @@ async def get_schedule_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.commit()
     conn.close()
 
-    # جدولة التذكير
     if scheduled_date:
         try:
             scheduled_dt = datetime.strptime(scheduled_date, "%Y-%m-%d %H:%M")
             delay = (scheduled_dt - datetime.now()).total_seconds()
-            if delay > 0:
-                context.job_queue.run_once(
-                    send_visit_reminder,
-                    when=delay,
-                    data={'visit_id': visit_id, 'inst_name': inst_name, 'visit_date': visit_date},
-                    name=f"reminder_{visit_id}"
-                )
+            if delay < 0:
+                delay = 1
+            context.job_queue.run_once(
+                send_visit_reminder,
+                when=delay,
+                data={'visit_id': visit_id, 'inst_name': inst_name, 'visit_date': visit_date},
+                name=f"reminder_{visit_id}"
+            )
         except Exception:
             pass
 
@@ -505,6 +899,7 @@ async def send_visit_reminder(context: ContextTypes.DEFAULT_TYPE):
             )
         except Exception:
             pass
+    execute_query("UPDATE Visits SET reminder_sent = 1 WHERE id = ?", (data['visit_id'],))
 
 
 # ==========================================
@@ -512,26 +907,63 @@ async def send_visit_reminder(context: ContextTypes.DEFAULT_TYPE):
 # ==========================================
 @admin_required
 async def manage_visits(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await _show_visits_list(update, status=None, order='DESC')
+
+
+async def _show_visits_list(update, status=None, order='DESC'):
+    query_conditions = []
+    params = []
+    if status == 'open':
+        query_conditions.append("status = 'مفتوحة'")
+    elif status == 'closed':
+        query_conditions.append("status = 'مغلقة'")
+
+    condition = f"WHERE {' AND '.join(query_conditions)}" if query_conditions else ""
     visits = execute_query(
-        "SELECT id, institution_name, visit_date, status FROM Visits ORDER BY id DESC",
+        f"SELECT id, institution_name, visit_date, status FROM Visits {condition} ORDER BY visit_date {order}, id {order}",
         fetch=True
     )
+
     if not visits:
-        await update.message.reply_text("لا توجد زيارات مسجلة.")
+        message = "⚠️ لا توجد زيارات مطابقة." if status else "⚠️ لا توجد زيارات مسجلة."
+        if hasattr(update, 'callback_query') and update.callback_query:
+            await update.callback_query.edit_message_text(message)
+        else:
+            await update.message.reply_text(message)
         return
 
     keyboard = [
+        [InlineKeyboardButton("🟢 مفتوحة", callback_data="filter_open"),
+         InlineKeyboardButton("🔴 مغلقة", callback_data="filter_closed")],
+        [InlineKeyboardButton("📅 الأحدث", callback_data="sort_newest"),
+         InlineKeyboardButton("📅 الأقدم", callback_data="sort_oldest")],
+        [InlineKeyboardButton("📋 عرض الكل", callback_data="filter_all")]
+    ]
+    keyboard += [
         [InlineKeyboardButton(
             f"{'🟢' if v[3] == 'مفتوحة' else '🔴'} {v[1]} ({v[2]})",
             callback_data=f"select_{v[0]}"
         )]
         for v in visits
     ]
-    await update.message.reply_text(
-        "📋 <b>قائمة الزيارات:</b>",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode="HTML"
-    )
+    text = "📋 <b>قائمة الزيارات:</b>"
+    if status == 'open':
+        text += "\n<i>عرض الزيارات المفتوحة فقط</i>"
+    elif status == 'closed':
+        text += "\n<i>عرض الزيارات المغلقة فقط</i>"
+
+    if hasattr(update, 'callback_query') and update.callback_query:
+        await update.callback_query.edit_message_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="HTML"
+        )
+    else:
+        await update.message.reply_text(
+            text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="HTML"
+        )
 
 
 # ==========================================
@@ -546,15 +978,22 @@ async def show_statistics(update: Update, context: ContextTypes.DEFAULT_TYPE):
     total_reports = execute_query("SELECT COUNT(*) FROM Reports", fetch=True)[0][0]
     total_attachments = execute_query("SELECT COUNT(*) FROM Attachments", fetch=True)[0][0]
 
-    # أكثر زيارة فيها ملاحظات
-    top_visit = execute_query(
-        """SELECT V.institution_name, COUNT(R.id) as cnt
-           FROM Visits V LEFT JOIN Reports R ON V.id = R.visit_id
-           GROUP BY V.id ORDER BY cnt DESC LIMIT 1""",
+    axis_summary = execute_query(
+        "SELECT axis_name, COUNT(*) FROM Reports GROUP BY axis_name ORDER BY COUNT(*) DESC",
+        fetch=True
+    )
+    frequent_sections = execute_query(
+        "SELECT section_name, COUNT(*) FROM Reports GROUP BY section_name ORDER BY COUNT(*) DESC LIMIT 5",
+        fetch=True
+    )
+    top_institutions = execute_query(
+        "SELECT institution_name, COUNT(*) FROM Visits GROUP BY institution_name ORDER BY COUNT(*) DESC LIMIT 5",
         fetch=True
     )
 
-    top_text = f"\n📌 أكثر زيارة: {top_visit[0][0]} ({top_visit[0][1]} ملاحظة)" if top_visit else ""
+    axis_text = "\n".join([f"- {row[0]}: {row[1]}" for row in axis_summary])
+    sections_text = "\n".join([f"- {row[0]} ({row[1]})" for row in frequent_sections])
+    institutions_text = "\n".join([f"- {row[0]} ({row[1]} زيارة)" for row in top_institutions])
 
     await update.message.reply_text(
         f"📊 <b>إحصائيات النظام</b>\n\n"
@@ -563,8 +1002,10 @@ async def show_statistics(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"  🔴 مغلقة: {closed_visits}\n\n"
         f"👥 إجمالي الأعضاء المسجلين: {total_members}\n"
         f"📝 إجمالي الملاحظات: {total_reports}\n"
-        f"📎 إجمالي المرفقات: {total_attachments}"
-        f"{top_text}",
+        f"📎 إجمالي المرفقات: {total_attachments}\n\n"
+        f"📌 الملاحظات حسب المحور:\n{axis_text}\n\n"
+        f"📂 أكثر الأقسام تكراراً:\n{sections_text}\n\n"
+        f"🏥 أكثر المؤسسات زيارة:\n{institutions_text}",
         parse_mode="HTML",
         reply_markup=ReplyKeyboardMarkup(ADMIN_MENU_KB, resize_keyboard=True)
     )
@@ -609,6 +1050,23 @@ async def search_execute(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
+@admin_required
+async def show_audit_log(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    rows = execute_query(
+        "SELECT user_name, action, target_type, target_id, details, created_at FROM Audit_Log ORDER BY created_at DESC LIMIT 20",
+        fetch=True
+    )
+    if not rows:
+        await update.message.reply_text("⚠️ لا توجد سجلات حتى الآن.")
+        return
+
+    text = "🧾 <b>سجل العمليات الأخير</b>\n\n"
+    for user_name, action, target_type, target_id, details, created_at in rows:
+        text += f"[{created_at}] {user_name} - {action} - {target_type} {target_id} - {details}\n"
+
+    await update.message.reply_text(text, parse_mode="HTML")
+
+
 # ==========================================
 # 8. معالج الـ Callback (إدارة الزيارات)
 # ==========================================
@@ -626,6 +1084,20 @@ async def visit_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         visit_id = data.split("_")[1]
         await _show_visit_menu(query, visit_id)
 
+    # --- تصفية الزيارات ---
+    elif data.startswith("filter_"):
+        filter_type = data.split("_")[1]
+        if filter_type == 'open':
+            await _show_visits_list(query, status='open', order='DESC')
+        elif filter_type == 'closed':
+            await _show_visits_list(query, status='closed', order='DESC')
+        else:
+            await _show_visits_list(query, status=None, order='DESC')
+
+    elif data.startswith("sort_"):
+        order = 'ASC' if data == 'sort_oldest' else 'DESC'
+        await _show_visits_list(query, status=None, order=order)
+
     # --- نسخ الرابط ---
     elif data.startswith("link_"):
         visit_id = data.split("_")[1]
@@ -640,12 +1112,14 @@ async def visit_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         visit_id = data.split("_")[1]
         execute_query("UPDATE Visits SET status = 'مغلقة' WHERE id = ?", (visit_id,))
         await query.edit_message_text("🔒 <b>تم إغلاق الزيارة.</b>", parse_mode="HTML")
+        log_action(update.effective_user.id, update.effective_user.full_name, 'close_visit', 'visit', int(visit_id), 'أغلق الزيارة من لوحة الإدارة')
 
     # --- إعادة فتح ---
     elif data.startswith("reopen_"):
         visit_id = data.split("_")[1]
         execute_query("UPDATE Visits SET status = 'مفتوحة' WHERE id = ?", (visit_id,))
         await query.edit_message_text("🔓 <b>تم إعادة فتح الزيارة!</b>", parse_mode="HTML")
+        log_action(update.effective_user.id, update.effective_user.full_name, 'reopen_visit', 'visit', int(visit_id), 'أعاد فتح الزيارة من لوحة الإدارة')
 
     # --- ملخص نصي سريع ---
     elif data.startswith("preview_"):
@@ -659,8 +1133,22 @@ async def visit_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
 
     elif data.startswith("delrep_"):
         report_id = data.split("_")[1]
+        await query.edit_message_text(
+            "هل أنت متأكد من حذف هذه الملاحظة؟",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("نعم، احذف", callback_data=f"confirm_delrep_{report_id}" )],
+                [InlineKeyboardButton("لا، إلغاء", callback_data="cancel_action")]
+            ])
+        )
+
+    elif data.startswith("confirm_delrep_"):
+        report_id = data.split("_")[1]
         execute_query("DELETE FROM Reports WHERE id = ?", (report_id,))
         await query.edit_message_text("🗑️ تم حذف الملاحظة.")
+        log_action(update.effective_user.id, update.effective_user.full_name, 'delete_report', 'report', int(report_id), 'تم حذف ملاحظة من لوحة الإدارة')
+
+    elif data == "cancel_action":
+        await query.edit_message_text("❌ تم إلغاء العملية.")
 
     # --- تجميع المرفقات ---
     elif data.startswith("attachments_"):
@@ -670,11 +1158,22 @@ async def visit_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
     # --- حذف الزيارة ---
     elif data.startswith("delete_"):
         visit_id = data.split("_")[1]
+        await query.edit_message_text(
+            "هل أنت متأكد من حذف هذه الزيارة وجميع بياناتها؟",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("نعم، احذف الزيارة", callback_data=f"confirm_delete_{visit_id}" )],
+                [InlineKeyboardButton("لا، إلغاء", callback_data="cancel_action")]
+            ])
+        )
+
+    elif data.startswith("confirm_delete_"):
+        visit_id = data.split("_")[1]
         execute_query("DELETE FROM Reports WHERE visit_id = ?", (visit_id,))
         execute_query("DELETE FROM Visit_Members WHERE visit_id = ?", (visit_id,))
         execute_query("DELETE FROM Attachments WHERE visit_id = ?", (visit_id,))
         execute_query("DELETE FROM Visits WHERE id = ?", (visit_id,))
         await query.edit_message_text("🗑️ تم حذف الزيارة وجميع بياناتها.")
+        log_action(update.effective_user.id, update.effective_user.full_name, 'delete_visit', 'visit', int(visit_id), 'حذف زيارة ونهجها بالكامل')
 
     # --- إصدار التقرير ---
     elif data.startswith("export_"):
@@ -859,6 +1358,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     init_db()
     application = Application.builder().token(TOKEN).build()
+    _schedule_pending_reminders(application)
 
     # --- معالج الـ Callback ---
     application.add_handler(CallbackQueryHandler(visit_callback_handler))
@@ -867,6 +1367,8 @@ def main():
     application.add_handler(CommandHandler("visits", manage_visits))
     application.add_handler(MessageHandler(filters.Regex("^📋 إدارة الزيارات$"), manage_visits))
     application.add_handler(MessageHandler(filters.Regex("^📊 الإحصائيات$"), show_statistics))
+    application.add_handler(CommandHandler("audit", show_audit_log))
+    application.add_handler(MessageHandler(filters.Regex("^🗂 سجل العمليات$"), show_audit_log))
 
     # --- إنشاء زيارة (محادثة) ---
     visit_creator = ConversationHandler(
@@ -901,9 +1403,11 @@ def main():
             MessageHandler(filters.Regex("^➕ إرسال رد آخر$"), start_another_report)
         ],
         states={
+            DRAFT_RESUME:      [MessageHandler(filters.TEXT & ~filters.COMMAND, resume_draft_choice)],
             AXIS_NAME:         [MessageHandler(filters.TEXT & ~filters.COMMAND, get_axis_name)],
             SECTION_NAME:      [MessageHandler(filters.TEXT & ~filters.COMMAND, get_section_name)],
             NOTES:             [MessageHandler(filters.TEXT & ~filters.COMMAND, get_notes)],
+            NOTE_CONFIRM:      [MessageHandler(filters.TEXT & ~filters.COMMAND, confirm_note_entry)],
             REC_DESTINATION:   [MessageHandler(filters.TEXT & ~filters.COMMAND, get_rec_destination)],
             RECOMMENDATIONS:   [MessageHandler(filters.TEXT & ~filters.COMMAND, get_recommendations)],
             LOOP_OR_END:       [

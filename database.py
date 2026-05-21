@@ -59,10 +59,39 @@ def init_db():
         )
     ''')
 
+    # 5. جدول المسودات القصيرة
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS Drafts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            visit_id INTEGER,
+            user_id INTEGER,
+            user_name TEXT,
+            state TEXT,
+            payload TEXT,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (visit_id) REFERENCES Visits (id)
+        )
+    ''')
+
+    # 6. سجل التدقيق Audit Log
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS Audit_Log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            user_name TEXT,
+            action TEXT,
+            target_type TEXT,
+            target_id INTEGER,
+            details TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
     # ترقية الجداول الموجودة إن احتاجت
     migrations = [
         "ALTER TABLE Reports ADD COLUMN rec_destination TEXT",
         "ALTER TABLE Visits ADD COLUMN scheduled_date TEXT DEFAULT NULL",
+        "ALTER TABLE Visits ADD COLUMN reminder_sent INTEGER DEFAULT 0",
     ]
     for sql in migrations:
         try:
