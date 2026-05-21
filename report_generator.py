@@ -438,7 +438,7 @@ class ReportBuilder:
 
         # تنظيف الأسماء من أي رموز قد تسبب مشاكل في نظام التشغيل (OS)
         safe_name = re.sub(r'[\\/*?:"<>|]', "-", raw_name)
-        safe_date = re.sub(r'[\\/*?:"<>|]', "-", raw_date)
+        safe_date = re.sub(r'[\\/|]', "-", raw_date)
 
         file_name = f"تقرير_{safe_name}_{safe_date}.docx"
         self.doc.save(file_name)

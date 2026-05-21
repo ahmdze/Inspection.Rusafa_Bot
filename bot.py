@@ -60,7 +60,7 @@ def is_admin(user_id):
 # حالات المحادثة
 # ==========================================
 INSTITUTION_NAME, VISIT_DATE, SCHEDULE_DATE = range(3)
-AXIS_NAME, SECTION_NAME, NOTES, NOTE_CONFIRM, REC_DESTINATION, RECOMMENDATIONS, LOOP_OR_END = range(10, 17)
+AXIS_NAME, SECTION_NAME, NOTES, NOTE_CONFIRM, REC_DESTINATION, RECOMMENDATIONS, LOOP_OR_END, SUMMARY_CONFIRM = range(10, 18)
 SEARCH_QUERY = 30
 ATTACHMENT_CAPTION = 40
 DRAFT_RESUME = 50
@@ -73,7 +73,14 @@ ADMIN_MENU_KB = [
     ["📊 الإحصائيات", "🔍 البحث عن زيارة"],
     ["🗂 سجل العمليات"]
 ]
-MEMBER_MENU_KB = [["➕ إرسال رد آخر"]]
+BUTTON_START_REPORT = "▶️ ابدأ تقرير جديد"
+BUTTON_RESUME_DRAFT = "⏱ استئناف المسودة"
+BUTTON_HELP = "❓ مساعدة"
+MEMBER_MENU_KB = [
+    [BUTTON_START_REPORT],
+    [BUTTON_RESUME_DRAFT],
+    [BUTTON_HELP]
+]
 
 AXES_LIST = [
     ["المعلومات العامة"],
@@ -81,6 +88,9 @@ AXES_LIST = [
     ["المحور الإداري"],
     ["المحور الهندسي"]
 ]
+ATTACHMENT_BUTTON = "📎 إرفاق صورة/ملف"
+BACK_BUTTON = "رجوع الى القائمة السابقة"
+REPORT_START_KB = AXES_LIST + [[ATTACHMENT_BUTTON]]
 
 SECTION_PRESETS = {
     "المحور الفني": [
@@ -89,18 +99,21 @@ SECTION_PRESETS = {
         ["المختبر"],
         ["الأشعة"],
         ["التمريض"],
-        ["اكتب اسم القسم يدوياً"]
+        ["اكتب اسم القسم يدوياً"],
+        [BACK_BUTTON]
     ],
     "المحور الإداري": [
         ["الإدارة والسجلات"],
         ["وحدة البصمة"],
-        ["اكتب اسم القسم يدوياً"]
+        ["اكتب اسم القسم يدوياً"],
+        [BACK_BUTTON]
     ],
     "المحور الهندسي": [
         ["الاجهزة الطبية"],
         ["الصيانة"],
         ["الدفاع المدني"],
-        ["اكتب اسم القسم يدوياً"]
+        ["اكتب اسم القسم يدوياً"],
+        [BACK_BUTTON]
     ]
 }
 DESTINATIONS_LIST = [
@@ -110,7 +123,8 @@ DESTINATIONS_LIST = [
     ["الإيعاز الى قسم الامور الادارية والقانونية والمالية بما يلي:"],
     ["الإيعاز الى شعبة التحقيقات/ قسمنا بما يلي:"],
     ["اكتب جهة الإيعاز يدوياً"],
-    ["لا توجد توصية"]
+    ["لا توجد توصية"],
+    [BACK_BUTTON]
 
 ]
 DESTINATIONS_FLAT = [item for sublist in DESTINATIONS_LIST for item in sublist]
@@ -132,7 +146,7 @@ GENERAL_INFO_KB = [
     ["عدد الافراد"],
     ["عدد العوائل"],
     ["اكتب اسم القسم يدوياً"],
-    ["رجوع الى القائمة الرئيسية"]
+    [BACK_BUTTON]
 ]
 # ==========================================
 # حالات المحادثة
@@ -297,8 +311,8 @@ async def start_and_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await update.message.reply_text(
             f"✅ تم دخولك إلى زيارة: <b>{institution_name}</b>\n\n"
-            f"اختر <b>المحور</b> المطلوب:",
-            reply_markup=ReplyKeyboardMarkup(AXES_LIST, one_time_keyboard=True, resize_keyboard=True),
+            f"اختر <b>المحور</b> أو أضف مرفقاً:",
+            reply_markup=ReplyKeyboardMarkup(REPORT_START_KB, one_time_keyboard=True, resize_keyboard=True),
             parse_mode="HTML"
         )
         return AXIS_NAME
@@ -306,12 +320,12 @@ async def start_and_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         if is_admin(user.id):
             await update.message.reply_text(
-                "مرحباً سيدي المدير 👨‍💼\nاستخدم الأزرار للإدارة:",
+                "مرحباً سيدي المدير 👨‍💼\nاستخدم الأزرار للإدارة أو اكتب /help للمساعدة.",
                 reply_markup=ReplyKeyboardMarkup(ADMIN_MENU_KB, resize_keyboard=True)
             )
         else:
             await update.message.reply_text(
-                "مرحباً بك في بوت التفتيش 🏛",
+                "مرحباً بك في بوت التفتيش 🏛\nاستخدم الأزرار لبدء أو اكتب /help لمساعدة سريعة.",
                 reply_markup=ReplyKeyboardMarkup(MEMBER_MENU_KB, resize_keyboard=True)
             )
         return ConversationHandler.END
@@ -348,8 +362,8 @@ async def start_another_report(update: Update, context: ContextTypes.DEFAULT_TYP
         return DRAFT_RESUME
 
     await update.message.reply_text(
-        f"✅ استئناف الإدخال لزيارة: <b>{institution_name}</b>\n\nاختر <b>المحور</b>:",
-        reply_markup=ReplyKeyboardMarkup(AXES_LIST, one_time_keyboard=True, resize_keyboard=True),
+        f"✅ استئناف الإدخال لزيارة: <b>{institution_name}</b>\n\nاختر <b>المحور</b> أو أضف مرفقاً:",
+        reply_markup=ReplyKeyboardMarkup(REPORT_START_KB, one_time_keyboard=True, resize_keyboard=True),
         parse_mode="HTML"
     )
     return AXIS_NAME
@@ -358,11 +372,19 @@ async def start_another_report(update: Update, context: ContextTypes.DEFAULT_TYP
 # 2. خطوات إدخال التقرير
 # ==========================================
 async def get_axis_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['current_state'] = AXIS_NAME
     axis = update.message.text
+    if axis == ATTACHMENT_BUTTON:
+        await update.message.reply_text(
+            "📎 أرسل الآن الصورة أو الملف الذي تريد إرفاقه:",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        return ATTACHMENT_CAPTION
+
     if [axis] not in AXES_LIST:
         await update.message.reply_text(
             "⚠️ اختر محوراً صحيحاً:",
-            reply_markup=ReplyKeyboardMarkup(AXES_LIST, resize_keyboard=True)
+            reply_markup=ReplyKeyboardMarkup(REPORT_START_KB, resize_keyboard=True)
         )
         return AXIS_NAME
 
@@ -382,11 +404,12 @@ async def get_axis_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def get_section_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['current_state'] = SECTION_NAME
     section_text = update.message.text.strip()
-    if section_text == "رجوع الى القائمة الرئيسية":
+    if section_text == BACK_BUTTON:
         await update.message.reply_text(
             "✅ عدت إلى قائمة المحاور. اختر المحور المطلوب:",
-            reply_markup=ReplyKeyboardMarkup(AXES_LIST, one_time_keyboard=True, resize_keyboard=True)
+            reply_markup=ReplyKeyboardMarkup(REPORT_START_KB, one_time_keyboard=True, resize_keyboard=True)
         )
         return AXIS_NAME
 
@@ -412,7 +435,16 @@ async def get_section_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def get_notes(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['current_notes'] = update.message.text.strip()
+    context.user_data['current_state'] = NOTES
+    text = update.message.text.strip()
+    if text == BACK_BUTTON:
+        await update.message.reply_text(
+            "✅ عدت إلى القائمة السابقة. اختر القسم أو المحور:",
+            reply_markup=ReplyKeyboardMarkup(REPORT_START_KB, one_time_keyboard=True, resize_keyboard=True)
+        )
+        return AXIS_NAME
+
+    context.user_data['current_notes'] = text
     if context.user_data.get('current_axis') == "المعلومات العامة":
         execute_query(
             "INSERT INTO Reports (visit_id, user_id, axis_name, section_name, notes, rec_destination, recommendations) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -425,20 +457,18 @@ async def get_notes(update: Update, context: ContextTypes.DEFAULT_TYPE):
                                     context.user_data['current_axis'],
                                     context.user_data['current_section'])
         await update.message.reply_text(
-            "✅ تم حفظ المعلومة!\nاختر حقلاً آخر من المعلومات العامة:",
+            "✅ تم حفظ المعلومة!\nاختر حقلاً آخر من المعلومات العامة أو عد للمحاور:",
             reply_markup=ReplyKeyboardMarkup(GENERAL_INFO_KB, resize_keyboard=True),
             parse_mode="HTML"
         )
         return SECTION_NAME
 
+    context.user_data['current_recommendations'] = []
     await update.message.reply_text(
-        f"📌 الملاحظة:\n{context.user_data['current_notes']}\n\nهل تود اعتمادها أم تعديلها؟",
-        reply_markup=ReplyKeyboardMarkup(
-            [["✅ حفظ الملاحظة"], ["✏️ تعديل الملاحظة"]],
-            one_time_keyboard=True, resize_keyboard=True
-        )
+        "🎯 لمن تود توجيه التوصية؟",
+        reply_markup=ReplyKeyboardMarkup(DESTINATIONS_LIST, one_time_keyboard=True, resize_keyboard=True)
     )
-    return NOTE_CONFIRM
+    return REC_DESTINATION
 
 
 async def confirm_note_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -466,6 +496,7 @@ async def confirm_note_entry(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def get_rec_destination(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['current_state'] = REC_DESTINATION
     text = update.message.text.strip()
 
     # If we previously asked the user to type a custom destination, accept any text now
@@ -480,6 +511,13 @@ async def get_rec_destination(update: Update, context: ContextTypes.DEFAULT_TYPE
             parse_mode="HTML"
         )
         return RECOMMENDATIONS
+
+    if text == BACK_BUTTON:
+        await update.message.reply_text(
+            "✅ عدت إلى القسم السابق. اختر القسم أو المحور:",
+            reply_markup=ReplyKeyboardMarkup(SECTION_PRESETS.get(context.user_data.get('current_axis'), [["اكتب اسم القسم يدوياً"]]) if context.user_data.get('current_axis') != "المعلومات العامة" else GENERAL_INFO_KB, one_time_keyboard=True, resize_keyboard=True)
+        )
+        return SECTION_NAME
 
     # If user chose to write destination manually, prompt for it
     if text == "اكتب جهة الإيعاز يدوياً":
@@ -520,8 +558,16 @@ async def get_rec_destination(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def get_recommendations(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['current_state'] = RECOMMENDATIONS
     text = update.message.text.strip()
     current_recs = context.user_data.get('current_recommendations', [])
+
+    if text == BACK_BUTTON:
+        await update.message.reply_text(
+            "✅ عدت إلى اختيار جهة الإيعاز. اختر جهة الإيعاز:",
+            reply_markup=ReplyKeyboardMarkup(DESTINATIONS_LIST, one_time_keyboard=True, resize_keyboard=True)
+        )
+        return REC_DESTINATION
 
     if text == "لا توجد توصية":
         recommendation_text = ""
@@ -565,7 +611,7 @@ async def _save_report_entry(update: Update, context: ContextTypes.DEFAULT_TYPE,
     await update.message.reply_text(
         "📥 تم الحفظ!\nهل تود إضافة المزيد؟",
         reply_markup=ReplyKeyboardMarkup(
-            [["➕ إضافة قسم آخر"], ["📎 إرفاق صورة/ملف"], ["💾 حفظ كمسودة"], ["🛑 إنهاء الإدخال"]],
+            [["➕ إضافة قسم آخر"], ["📎 إرفاق صورة/ملف"], ["💾 حفظ كمسودة"], ["🛑 إنهاء الإدخال"], [BACK_BUTTON]],
             one_time_keyboard=True, resize_keyboard=True
         )
     )
@@ -609,16 +655,44 @@ async def resume_draft_choice(update: Update, context: ContextTypes.DEFAULT_TYPE
     delete_draft(update.effective_user.id, context.user_data['report_visit_id'])
     await update.message.reply_text(
         "✅ تم بدء إدخال جديد.",
-        reply_markup=ReplyKeyboardMarkup(AXES_LIST, one_time_keyboard=True, resize_keyboard=True)
+        reply_markup=ReplyKeyboardMarkup(REPORT_START_KB, one_time_keyboard=True, resize_keyboard=True)
     )
     return AXIS_NAME
+
+
+async def resume_saved_draft(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    draft = execute_query(
+        "SELECT visit_id, state, payload FROM Drafts WHERE user_id = ? ORDER BY updated_at DESC LIMIT 1",
+        (user_id,), fetch=True
+    )
+    if not draft:
+        await update.message.reply_text(
+            "⚠️ لم يتم العثور على مسودة محفوظة.",
+            reply_markup=ReplyKeyboardMarkup(MEMBER_MENU_KB, resize_keyboard=True)
+        )
+        return ConversationHandler.END
+
+    visit_id, state, payload_text = draft[0]
+    try:
+        payload = json.loads(payload_text)
+    except Exception:
+        payload = {}
+
+    context.user_data['report_visit_id'] = visit_id
+    context.user_data.update(payload)
+    await update.message.reply_text(
+        "✅ استؤنفت المسودة المحفوظة. تابع من حيث توقفت.",
+        reply_markup=ReplyKeyboardRemove()
+    )
+    return await _resume_draft_state(update, context, int(state))
 
 
 async def _resume_draft_state(update: Update, context: ContextTypes.DEFAULT_TYPE, state: int):
     if state == AXIS_NAME:
         await update.message.reply_text(
             "اختر <b>المحور</b> المطلوب:",
-            reply_markup=ReplyKeyboardMarkup(AXES_LIST, one_time_keyboard=True, resize_keyboard=True),
+            reply_markup=ReplyKeyboardMarkup(REPORT_START_KB, one_time_keyboard=True, resize_keyboard=True),
             parse_mode="HTML"
         )
         return AXIS_NAME
@@ -690,13 +764,39 @@ async def _notify_admins_entry_summary(update: Update, context: ContextTypes.DEF
             pass
 
 
+async def _show_end_summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    visit_id = context.user_data.get('report_visit_id')
+    user_id = update.effective_user.id
+    reports_count = execute_query(
+        "SELECT COUNT(*) FROM Reports WHERE visit_id = ? AND user_id = ?",
+        (visit_id, user_id), fetch=True
+    )[0][0]
+    recommendations_count = execute_query(
+        "SELECT COUNT(*) FROM Reports WHERE visit_id = ? AND user_id = ? AND recommendations != ''",
+        (visit_id, user_id), fetch=True
+    )[0][0]
+
+    await update.message.reply_text(
+        f"📋 ملخص قبل الإنهاء:\n"
+        f"عدد الملاحظات: {reports_count}\n"
+        f"عدد العناصر مع توصيات: {recommendations_count}\n\n"
+        "هل تريد التأكيد على إنهاء الجلسة أم إضافة المزيد؟",
+        reply_markup=ReplyKeyboardMarkup(
+            [["✅ تأكيد الإنهاء"], ["➕ إضافة قسم آخر"], ["📎 إرفاق صورة/ملف"], ["💾 حفظ كمسودة"], [BACK_BUTTON]],
+            one_time_keyboard=True, resize_keyboard=True
+        )
+    )
+    return SUMMARY_CONFIRM
+
+
 async def process_loop_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['current_state'] = LOOP_OR_END
     choice = update.message.text
 
     if choice == "➕ إضافة قسم آخر":
         await update.message.reply_text(
             "اختر <b>المحور</b> للقسم الجديد:",
-            reply_markup=ReplyKeyboardMarkup(AXES_LIST, resize_keyboard=True),
+            reply_markup=ReplyKeyboardMarkup(REPORT_START_KB, resize_keyboard=True),
             parse_mode="HTML"
         )
         return AXIS_NAME
@@ -709,6 +809,40 @@ async def process_loop_choice(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return ATTACHMENT_CAPTION
 
+    elif choice == "🛑 إنهاء الإدخال":
+        return await _show_end_summary(update, context)
+
+    elif choice == BACK_BUTTON:
+        await update.message.reply_text(
+            "✅ عدت إلى قائمة المحاور. اختر المحور أو أضف مرفقاً:",
+            reply_markup=ReplyKeyboardMarkup(REPORT_START_KB, one_time_keyboard=True, resize_keyboard=True)
+        )
+        return AXIS_NAME
+
+    elif choice == "✅ تأكيد الإنهاء":
+        reports_count = execute_query(
+            "SELECT COUNT(*) FROM Reports WHERE visit_id = ? AND user_id = ?",
+            (context.user_data['report_visit_id'], update.effective_user.id), fetch=True
+        )[0][0]
+        attachments_count = execute_query(
+            "SELECT COUNT(*) FROM Attachments WHERE visit_id = ? AND user_id = ?",
+            (context.user_data['report_visit_id'], update.effective_user.id), fetch=True
+        )[0][0]
+
+        if is_admin(update.effective_user.id):
+            await update.message.reply_text(
+                f"✅ تم إنهاء جلستك.\nعدد الملاحظات: {reports_count}\nعدد المرفقات: {attachments_count}",
+                reply_markup=ReplyKeyboardMarkup(ADMIN_MENU_KB, resize_keyboard=True)
+            )
+        else:
+            await update.message.reply_text(
+                f"✅ تم إرسال تقريرك بنجاح. شكراً لجهودك.\nعدد الملاحظات: {reports_count}\nعدد المرفقات: {attachments_count}",
+                reply_markup=ReplyKeyboardMarkup(MEMBER_MENU_KB, resize_keyboard=True)
+            )
+        await _notify_admins_entry_summary(update, context, update.effective_user.full_name, context.user_data['report_visit_id'])
+        delete_draft(update.effective_user.id, context.user_data['report_visit_id'])
+        return ConversationHandler.END
+
     elif choice == "💾 حفظ كمسودة":
         user = update.effective_user
         save_draft(user.id, context.user_data['report_visit_id'], user.full_name, LOOP_OR_END, context.user_data)
@@ -719,14 +853,23 @@ async def process_loop_choice(update: Update, context: ContextTypes.DEFAULT_TYPE
         return ConversationHandler.END
 
     else:
+        reports_count = execute_query(
+            "SELECT COUNT(*) FROM Reports WHERE visit_id = ? AND user_id = ?",
+            (context.user_data['report_visit_id'], update.effective_user.id), fetch=True
+        )[0][0]
+        attachments_count = execute_query(
+            "SELECT COUNT(*) FROM Attachments WHERE visit_id = ? AND user_id = ?",
+            (context.user_data['report_visit_id'], update.effective_user.id), fetch=True
+        )[0][0]
+
         if is_admin(update.effective_user.id):
             await update.message.reply_text(
-                "✅ تم إنهاء جلستك.",
+                f"✅ تم إنهاء جلستك.\nعدد الملاحظات: {reports_count}\nعدد المرفقات: {attachments_count}",
                 reply_markup=ReplyKeyboardMarkup(ADMIN_MENU_KB, resize_keyboard=True)
             )
         else:
             await update.message.reply_text(
-                "✅ تم إرسال تقريرك بنجاح. شكراً لجهودك.",
+                f"✅ تم إرسال تقريرك بنجاح. شكراً لجهودك.\nعدد الملاحظات: {reports_count}\nعدد المرفقات: {attachments_count}",
                 reply_markup=ReplyKeyboardMarkup(MEMBER_MENU_KB, resize_keyboard=True)
             )
         await _notify_admins_entry_summary(update, context, update.effective_user.full_name, context.user_data['report_visit_id'])
@@ -787,7 +930,7 @@ async def receive_attachment(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await update.message.reply_text(
         "✅ تم حفظ المرفق!\nهل تود إرفاق المزيد أو المتابعة؟",
         reply_markup=ReplyKeyboardMarkup(
-            [["📎 إرفاق صورة/ملف أخرى"], ["➕ إضافة قسم آخر"], ["🛑 إنهاء الإدخال"]],
+            [["📎 إرفاق صورة/ملف أخرى"], ["➕ إضافة قسم آخر"], ["🛑 إنهاء الإدخال"], [BACK_BUTTON]],
             one_time_keyboard=True, resize_keyboard=True
         )
     )
@@ -1341,15 +1484,36 @@ async def _send_attachments_zip(query, visit_id, context):
 # 9. الإلغاء
 # ==========================================
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if is_admin(update.effective_user.id):
+    user = update.effective_user
+    if context.user_data.get('report_visit_id') and any(k in context.user_data for k in ('current_axis', 'current_section', 'current_notes', 'current_rec_dest')):
+        state = context.user_data.get('current_state', AXIS_NAME)
+        save_draft(user.id, context.user_data['report_visit_id'], user.full_name, state, context.user_data)
+        cancel_text = "💾 تم حفظ المسودة عند الإلغاء. يمكنك العودة لاحقاً."
+    else:
+        cancel_text = "❌ تم الإلغاء."
+
+    if is_admin(user.id):
         kb = ADMIN_MENU_KB
     else:
         kb = MEMBER_MENU_KB
     await update.message.reply_text(
-        "❌ تم الإلغاء.",
+        cancel_text,
         reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True)
     )
     return ConversationHandler.END
+
+
+async def show_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "💡 كيفية استخدام البوت:\n"
+        "1. اختر المحور أو أضف مرفقاً مباشرة.\n"
+        "2. إذا اخترت المعلومات العامة، اختر الحقل وأرسل القيمة.\n"
+        "3. إذا اخترت محوراً آخر، اكتب الملاحظة ثم اختر جهة الإيعاز.\n"
+        "4. اختر لا توجد توصية إذا لا تحتاج توجيه.\n"
+        "5. يمكنك حفظ المسودة أو إنهاء الإدخال في أي وقت.\n"
+        "للمساعدة أضف \"رجوع الى القائمة السابقة\" في أي شاشة للعودة بسرعة.",
+        reply_markup=ReplyKeyboardMarkup(MEMBER_MENU_KB if not is_admin(update.effective_user.id) else ADMIN_MENU_KB, resize_keyboard=True)
+    )
 
 
 # ==========================================
@@ -1395,6 +1559,8 @@ def main():
         },
         fallbacks=[CommandHandler('cancel', cancel)]
     )
+
+    application.add_handler(CommandHandler('help', show_help))
 
     # --- إدخال التقرير والمرفقات (محادثة) ---
     report_handler = ConversationHandler(
