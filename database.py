@@ -190,8 +190,8 @@ def init_db():
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     institution_name TEXT NOT NULL,
                     visit_date TEXT,
-                    manager_id INTEGER,
-                    leader_id INTEGER,
+                    manager_id BIGINT,
+                    leader_id BIGINT,
                     status TEXT DEFAULT 'مفتوحة',
                     scheduled_date TEXT DEFAULT NULL,
                     reminder_sent INTEGER DEFAULT 0,
@@ -204,7 +204,7 @@ def init_db():
                 CREATE TABLE IF NOT EXISTS Visit_Members (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     visit_id INTEGER NOT NULL,
-                    user_id INTEGER NOT NULL,
+                    user_id BIGINT NOT NULL,
                     user_name TEXT,
                     joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (visit_id) REFERENCES Visits (id) ON DELETE CASCADE,
@@ -216,7 +216,7 @@ def init_db():
                 CREATE TABLE IF NOT EXISTS Reports (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     visit_id INTEGER NOT NULL,
-                    user_id INTEGER NOT NULL,
+                    user_id BIGINT NOT NULL,
                     axis_name TEXT NOT NULL,
                     section_name TEXT NOT NULL,
                     notes TEXT,
@@ -231,7 +231,7 @@ def init_db():
                 CREATE TABLE IF NOT EXISTS Attachments (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     visit_id INTEGER NOT NULL,
-                    user_id INTEGER NOT NULL,
+                    user_id BIGINT NOT NULL,
                     user_name TEXT,
                     file_id TEXT NOT NULL,
                     file_type TEXT,
@@ -246,7 +246,7 @@ def init_db():
                 CREATE TABLE IF NOT EXISTS Drafts (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     visit_id INTEGER NOT NULL,
-                    user_id INTEGER NOT NULL,
+                    user_id BIGINT NOT NULL,
                     user_name TEXT,
                     state TEXT,
                     payload TEXT,
@@ -259,7 +259,7 @@ def init_db():
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS Audit_Log (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER,
+                    user_id BIGINT,
                     user_name TEXT,
                     action TEXT NOT NULL,
                     target_type TEXT,
@@ -272,7 +272,7 @@ def init_db():
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS User_Sessions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER NOT NULL UNIQUE,
+                    user_id BIGINT NOT NULL UNIQUE,
                     first_name TEXT,
                     last_name TEXT,
                     username TEXT,
@@ -334,6 +334,9 @@ def run_migrations(conn):
             )
         ''')
     
+    # Commit immediately after creating the table
+    conn.commit()
+    
     # قائمة الهجرات
     migrations = [
         ('add_rec_destination_to_reports', 
@@ -348,14 +351,14 @@ def run_migrations(conn):
          "ALTER TABLE Visits ADD COLUMN created_at TIMESTAMP"),
         ('fix_user_id_types_to_bigint',
          """DO $$ BEGIN
-            ALTER TABLE Visits ALTER COLUMN manager_id TYPE BIGINT;
-            ALTER TABLE Visits ALTER COLUMN leader_id TYPE BIGINT;
-            ALTER TABLE Visit_Members ALTER COLUMN user_id TYPE BIGINT;
-            ALTER TABLE Reports ALTER COLUMN user_id TYPE BIGINT;
-            ALTER TABLE Attachments ALTER COLUMN user_id TYPE BIGINT;
-            ALTER TABLE Drafts ALTER COLUMN user_id TYPE BIGINT;
-            ALTER TABLE Audit_Log ALTER COLUMN user_id TYPE BIGINT;
-            ALTER TABLE User_Sessions ALTER COLUMN user_id TYPE BIGINT;
+            ALTER TABLE Visits ALTER COLUMN manager_id SET DATA TYPE BIGINT;
+            ALTER TABLE Visits ALTER COLUMN leader_id SET DATA TYPE BIGINT;
+            ALTER TABLE Visit_Members ALTER COLUMN user_id SET DATA TYPE BIGINT;
+            ALTER TABLE Reports ALTER COLUMN user_id SET DATA TYPE BIGINT;
+            ALTER TABLE Attachments ALTER COLUMN user_id SET DATA TYPE BIGINT;
+            ALTER TABLE Drafts ALTER COLUMN user_id SET DATA TYPE BIGINT;
+            ALTER TABLE Audit_Log ALTER COLUMN user_id SET DATA TYPE BIGINT;
+            ALTER TABLE User_Sessions ALTER COLUMN user_id SET DATA TYPE BIGINT;
         EXCEPTION WHEN OTHERS THEN NULL; END $$"""),
     ]
     
@@ -405,10 +408,15 @@ def run_migrations(conn):
         try:
             if USE_POSTGRES:
                 cursor.execute(sql)
-                cursor.execute(
-                    "INSERT INTO Schema_Migrations (migration_name) VALUES (%s)",
-                    (migration_name,)
-                )
+                # Record migration only if Schema_Migrations table exists
+                try:
+                    cursor.execute(
+                        "INSERT INTO Schema_Migrations (migration_name) VALUES (%s)",
+                        (migration_name,)
+                    )
+                except psycopg2.errors.UndefinedTable:
+                    # Table doesn't exist yet, that's ok for early migrations
+                    pass
             else:
                 cursor.execute(sql)
                 cursor.execute(
@@ -430,6 +438,12 @@ def run_migrations(conn):
             elif "duplicate key" in error_msg or "unique constraint" in error_msg:
                 # الهجرة مسجلة بالفعل في جدول Schema_Migrations
                 logger.warning(f"⚠️ Migration already recorded: {migration_name}")
+                if USE_POSTGRES:
+                    conn.rollback()
+                continue
+            elif "relation" in error_msg and "does not exist" in error_msg:
+                # جدول Schema_Migrations غير موجود، هذا يعني أن الهجرة ستنجح لكن لن نسجلها
+                logger.warning(f"⚠️ Migration applied but not recorded (table doesn't exist yet): {migration_name}")
                 if USE_POSTGRES:
                     conn.rollback()
                 continue
