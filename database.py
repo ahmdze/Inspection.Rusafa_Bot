@@ -88,6 +88,7 @@ def init_db():
                     visit_id INTEGER NOT NULL,
                     user_id BIGINT NOT NULL,
                     user_name TEXT,
+                    job_title TEXT,
                     joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (visit_id) REFERENCES Visits (id) ON DELETE CASCADE,
                     UNIQUE(visit_id, user_id)
@@ -206,6 +207,7 @@ def init_db():
                     visit_id INTEGER NOT NULL,
                     user_id BIGINT NOT NULL,
                     user_name TEXT,
+                    job_title TEXT,
                     joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (visit_id) REFERENCES Visits (id) ON DELETE CASCADE,
                     UNIQUE(visit_id, user_id)
@@ -360,6 +362,8 @@ def run_migrations(conn):
             ALTER TABLE Audit_Log ALTER COLUMN user_id SET DATA TYPE BIGINT;
             ALTER TABLE User_Sessions ALTER COLUMN user_id SET DATA TYPE BIGINT;
         EXCEPTION WHEN OTHERS THEN NULL; END $$"""),
+        ('add_job_title_to_visit_members',
+         "ALTER TABLE Visit_Members ADD COLUMN job_title TEXT"),
     ]
     
     for migration_name, sql in migrations:
