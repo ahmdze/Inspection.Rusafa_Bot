@@ -1,8 +1,8 @@
 import os
 import re
-import sqlite3
 from datetime import datetime
 
+from database import get_connection
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
@@ -35,16 +35,12 @@ AXIS_ORDER = [
 # =========================================================
 
 def execute_query(query, params=(), fetch=False):
-    conn = sqlite3.connect('inspection_db.sqlite')
-    cursor = conn.cursor()
-    
-    try:
+    with get_connection() as conn:
+        cursor = conn.cursor()
         cursor.execute(query, params)
         if fetch:
             return cursor.fetchall()
         conn.commit()
-    finally:
-        conn.close()
 
 
 # =========================================================

@@ -89,6 +89,41 @@ def is_admin(user_id):
     """التحقق من صلاحيات المدير"""
     return user_id in ADMIN_IDS
 
+
+def build_callback_data(action, payload=None):
+    """إنشاء callback_data موحد يمكن تحليله بأمان"""
+    if payload is None or payload == "":
+        return action
+    return f"{action}|{payload}"
+
+
+def parse_callback_data(data):
+    """تحليل callback_data بما يدعم الشكل الجديد والشكل القديم"""
+    if not data:
+        return "", None
+    if "|" in data:
+        return data.split("|", 1)
+    if data in ("cancel_action", "institutions_list"):
+        return data, None
+    if "_" in data:
+        return data.rsplit("_", 1)
+    return data, None
+
+
+def sanitize_text(value, max_length=200):
+    if value is None:
+        return ""
+    text = str(value).strip()
+    if len(text) > max_length:
+        return text[:max_length]
+    return text
+
+
+def is_valid_text(value, max_length=200):
+    text = sanitize_text(value, max_length)
+    return bool(text)
+
+
 # ==========================================
 # حالات المحادثة
 # ==========================================
@@ -1052,15 +1087,14 @@ async def get_schedule_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return SCHEDULE_DATE
 
-    conn = sqlite3.connect('inspection_db.sqlite')
-    cursor = conn.cursor()
-    cursor.execute(
-        "INSERT INTO Visits (institution_name, visit_date, manager_id, status, scheduled_date) VALUES (?, ?, ?, 'مفتوحة', ?)",
-        (inst_name, visit_date, update.effective_user.id, scheduled_date)
-    )
-    visit_id = cursor.lastrowid
-    conn.commit()
-    conn.close()
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO Visits (institution_name, visit_date, manager_id, status, scheduled_date) VALUES (?, ?, ?, 'مفتوحة', ?)",
+            (inst_name, visit_date, update.effective_user.id, scheduled_date)
+        )
+        visit_id = cursor.lastrowid
+        conn.commit()
 
     if scheduled_date:
         try:
@@ -1135,7 +1169,7 @@ async def manage_institutions(update: Update, context: ContextTypes.DEFAULT_TYPE
         for idx, row in enumerate(institutions, start=1)
     }
     keyboard = [
-        [InlineKeyboardButton(row[0], callback_data=f"institution_{idx}")]
+        [InlineKeyboardButton(row[0], callback_data=build_callback_data("institution", idx))]
         for idx, row in enumerate(institutions, start=1)
     ]
     await update.message.reply_text(
@@ -1167,7 +1201,7 @@ async def institution_search_execute(update: Update, context: ContextTypes.DEFAU
         for idx, row in enumerate(institutions, start=1)
     }
     keyboard = [
-        [InlineKeyboardButton(row[0], callback_data=f"institution_{idx}")]
+        [InlineKeyboardButton(row[0], callback_data=build_callback_data("institution", idx))]
         for idx, row in enumerate(institutions, start=1)
     ]
     await update.message.reply_text(
@@ -1190,7 +1224,7 @@ async def _show_institution_visits(query, institution_name, context: ContextType
         return
 
     keyboard = [
-        [InlineKeyboardButton(f"{'🟢' if v[2]=='مفتوحة' else '🔴'} {v[1]}", callback_data=f"select_{v[0]}")]
+        [InlineKeyboardButton(f"{'🟢' if v[2]=='مفتوحة' else '🔴'} {v[1]}", callback_data=build_callback_data("select", v[0]))]
         for v in visits
     ]
     keyboard.insert(0, [InlineKeyboardButton("◀️ العودة للمؤسسات", callback_data="institutions_list")])
@@ -1218,7 +1252,7 @@ async def _show_institutions_list(query, context: ContextTypes.DEFAULT_TYPE):
         for idx, row in enumerate(institutions, start=1)
     }
     keyboard = [
-        [InlineKeyboardButton(row[0], callback_data=f"institution_{idx}")]
+        [InlineKeyboardButton(row[0], callback_data=build_callback_data("institution", idx))]
         for idx, row in enumerate(institutions, start=1)
     ]
     await query.edit_message_text(
@@ -1250,16 +1284,16 @@ async def _show_visits_list(update, status=None, order='DESC'):
         return
 
     keyboard = [
-        [InlineKeyboardButton("🟢 مفتوحة", callback_data="filter_open"),
-         InlineKeyboardButton("🔴 مغلقة", callback_data="filter_closed")],
-        [InlineKeyboardButton("📅 الأحدث", callback_data="sort_newest"),
-         InlineKeyboardButton("📅 الأقدم", callback_data="sort_oldest")],
-        [InlineKeyboardButton("📋 عرض الكل", callback_data="filter_all")]
+        [InlineKeyboardButton("🟢 مفتوحة", callback_data=build_callback_data("filter", "open")),
+         InlineKeyboardButton("🔴 مغلقة", callback_data=build_callback_data("filter", "closed"))],
+        [InlineKeyboardButton("📅 الأحدث", callback_data=build_callback_data("sort", "newest")),
+         InlineKeyboardButton("📅 الأقدم", callback_data=build_callback_data("sort", "oldest"))],
+        [InlineKeyboardButton("📋 عرض الكل", callback_data=build_callback_data("filter", "all"))]
     ]
     keyboard += [
         [InlineKeyboardButton(
             f"{'🟢' if v[3] == 'مفتوحة' else '🔴'} {v[1]} ({v[2]})",
-            callback_data=f"select_{v[0]}"
+            callback_data=build_callback_data("select", v[0])
         )]
         for v in visits
     ]
@@ -1356,7 +1390,7 @@ async def search_execute(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton(
             f"{'🟢' if v[3] == 'مفتوحة' else '🔴'} {v[1]} ({v[2]})",
-            callback_data=f"select_{v[0]}"
+            callback_data=build_callback_data("select", v[0])
         )]
         for v in results
     ]
@@ -1395,119 +1429,142 @@ async def visit_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
     query = update.callback_query
     await query.answer()
     data = query.data
+    action, payload = parse_callback_data(data)
 
     # --- عرض تفاصيل زيارة ---
-    if data.startswith("select_"):
-        visit_id = data.rsplit("_", 1)[-1]
-        await _show_visit_menu(query, visit_id)
+    if action == "select":
+        if not payload or not payload.isdigit():
+            await query.answer("⚠️ بيانات الزيارة غير صحيحة.", show_alert=True)
+            return
+        await _show_visit_menu(query, payload)
 
     # --- تصفية الزيارات ---
-    elif data.startswith("filter_"):
-        filter_type = data.rsplit("_", 1)[-1]
-        if filter_type == 'open':
+    elif action == "filter":
+        if payload == 'open':
             await _show_visits_list(query, status='open', order='DESC')
-        elif filter_type == 'closed':
+        elif payload == 'closed':
             await _show_visits_list(query, status='closed', order='DESC')
         else:
             await _show_visits_list(query, status=None, order='DESC')
 
-    elif data.startswith("institution_"):
-        institution_key = data.rsplit("_", 1)[-1]
-        institution_name = context.user_data.get('institution_map', {}).get(institution_key)
+    elif action == "institution":
+        institution_name = context.user_data.get('institution_map', {}).get(payload)
         if not institution_name:
             await query.answer("⚠️ لا يمكن العثور على المؤسسة. أعد البحث.", show_alert=True)
             return
         await _show_institution_visits(query, institution_name, context)
 
-    elif data == "institutions_list":
+    elif action == "institutions_list":
         await _show_institutions_list(query, context)
 
-    elif data.startswith("sort_"):
-        order = 'ASC' if data == 'sort_oldest' else 'DESC'
+    elif action == "sort":
+        order = 'ASC' if payload == 'oldest' else 'DESC'
         await _show_visits_list(query, status=None, order=order)
 
     # --- نسخ الرابط ---
-    elif data.startswith("link_"):
-        visit_id = data.rsplit("_", 1)[-1]
+    elif action == "link":
+        if not payload or not payload.isdigit():
+            await query.answer("⚠️ بيانات الرابط غير صحيحة.", show_alert=True)
+            return
         await query.message.reply_text(
             f"🔗 <b>رابط الانضمام:</b>\n"
-            f"<code>https://t.me/InspectionRusafa_bot?start=join_{visit_id}</code>",
+            f"<code>https://t.me/InspectionRusafa_bot?start=join_{payload}</code>",
             parse_mode="HTML"
         )
 
     # --- إغلاق الزيارة ---
-    elif data.startswith("close_"):
-        visit_id = data.rsplit("_", 1)[-1]
-        execute_query("UPDATE Visits SET status = 'مغلقة' WHERE id = ?", (visit_id,))
+    elif action == "close":
+        if not payload or not payload.isdigit():
+            await query.answer("⚠️ بيانات الزيارة غير صحيحة.", show_alert=True)
+            return
+        execute_query("UPDATE Visits SET status = 'مغلقة' WHERE id = ?", (payload,))
         await query.edit_message_text("🔒 <b>تم إغلاق الزيارة.</b>", parse_mode="HTML")
-        log_action(update.effective_user.id, update.effective_user.full_name, 'close_visit', 'visit', int(visit_id), 'أغلق الزيارة من لوحة الإدارة')
+        log_action(update.effective_user.id, update.effective_user.full_name, 'close_visit', 'visit', int(payload), 'أغلق الزيارة من لوحة الإدارة')
 
     # --- إعادة فتح ---
-    elif data.startswith("reopen_"):
-        visit_id = data.rsplit("_", 1)[-1]
-        execute_query("UPDATE Visits SET status = 'مفتوحة' WHERE id = ?", (visit_id,))
+    elif action == "reopen":
+        if not payload or not payload.isdigit():
+            await query.answer("⚠️ بيانات الزيارة غير صحيحة.", show_alert=True)
+            return
+        execute_query("UPDATE Visits SET status = 'مفتوحة' WHERE id = ?", (payload,))
         await query.edit_message_text("🔓 <b>تم إعادة فتح الزيارة!</b>", parse_mode="HTML")
-        log_action(update.effective_user.id, update.effective_user.full_name, 'reopen_visit', 'visit', int(visit_id), 'أعاد فتح الزيارة من لوحة الإدارة')
+        log_action(update.effective_user.id, update.effective_user.full_name, 'reopen_visit', 'visit', int(payload), 'أعاد فتح الزيارة من لوحة الإدارة')
 
     # --- ملخص نصي سريع ---
-    elif data.startswith("preview_"):
-        visit_id = data.rsplit("_", 1)[-1]
-        await _show_text_preview(query, visit_id)
+    elif action == "preview":
+        if not payload or not payload.isdigit():
+            await query.answer("⚠️ بيانات العرض غير صحيحة.", show_alert=True)
+            return
+        await _show_text_preview(query, payload)
 
     # --- حذف ملاحظة ---
-    elif data.startswith("del_reports_"):
-        visit_id = data.rsplit("_", 1)[-1]
-        await _show_deletable_reports(query, visit_id)
+    elif action == "del_reports":
+        if not payload or not payload.isdigit():
+            await query.answer("⚠️ بيانات الملاحظة غير صحيحة.", show_alert=True)
+            return
+        await _show_deletable_reports(query, payload)
 
-    elif data.startswith("delrep_"):
-        report_id = data.rsplit("_", 1)[-1]
+    elif action == "delrep":
+        if not payload or not payload.isdigit():
+            await query.answer("⚠️ بيانات الملاحظة غير صحيحة.", show_alert=True)
+            return
         await query.edit_message_text(
             "هل أنت متأكد من حذف هذه الملاحظة؟",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("نعم، احذف", callback_data=f"confirm_delrep_{report_id}" )],
+                [InlineKeyboardButton("نعم، احذف", callback_data=build_callback_data("confirm_delrep", payload))],
                 [InlineKeyboardButton("لا، إلغاء", callback_data="cancel_action")]
             ])
         )
 
-    elif data.startswith("confirm_delrep_"):
-        report_id = data.rsplit("_", 1)[-1]
-        execute_query("DELETE FROM Reports WHERE id = ?", (report_id,))
+    elif action == "confirm_delrep":
+        if not payload or not payload.isdigit():
+            await query.answer("⚠️ بيانات الحذف غير صحيحة.", show_alert=True)
+            return
+        execute_query("DELETE FROM Reports WHERE id = ?", (payload,))
         await query.edit_message_text("🗑️ تم حذف الملاحظة.")
-        log_action(update.effective_user.id, update.effective_user.full_name, 'delete_report', 'report', int(report_id), 'تم حذف ملاحظة من لوحة الإدارة')
+        log_action(update.effective_user.id, update.effective_user.full_name, 'delete_report', 'report', int(payload), 'تم حذف ملاحظة من لوحة الإدارة')
 
-    elif data == "cancel_action":
+    elif action == "cancel_action":
         await query.edit_message_text("❌ تم إلغاء العملية.")
 
     # --- تجميع المرفقات ---
-    elif data.startswith("attachments_"):
-        visit_id = data.rsplit("_", 1)[-1]
-        await _send_attachments_zip(query, visit_id, context)
+    elif action == "attachments":
+        if not payload or not payload.isdigit():
+            await query.answer("⚠️ بيانات المرفقات غير صحيحة.", show_alert=True)
+            return
+        await _send_attachments_zip(query, payload, context)
 
     # --- حذف الزيارة ---
-    elif data.startswith("delete_"):
-        visit_id = data.rsplit("_", 1)[-1]
+    elif action == "delete":
+        if not payload or not payload.isdigit():
+            await query.answer("⚠️ بيانات الزيارة غير صحيحة.", show_alert=True)
+            return
         await query.edit_message_text(
             "هل أنت متأكد من حذف هذه الزيارة وجميع بياناتها؟",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("نعم، احذف الزيارة", callback_data=f"confirm_delete_{visit_id}" )],
+                [InlineKeyboardButton("نعم، احذف الزيارة", callback_data=build_callback_data("confirm_delete", payload))],
                 [InlineKeyboardButton("لا، إلغاء", callback_data="cancel_action")]
             ])
         )
 
-    elif data.startswith("confirm_delete_"):
-        visit_id = data.rsplit("_", 1)[-1]
-        execute_query("DELETE FROM Reports WHERE visit_id = ?", (visit_id,))
-        execute_query("DELETE FROM Visit_Members WHERE visit_id = ?", (visit_id,))
-        execute_query("DELETE FROM Attachments WHERE visit_id = ?", (visit_id,))
-        execute_query("DELETE FROM Visits WHERE id = ?", (visit_id,))
+    elif action == "confirm_delete":
+        if not payload or not payload.isdigit():
+            await query.answer("⚠️ بيانات الحذف غير صحيحة.", show_alert=True)
+            return
+        execute_query("DELETE FROM Reports WHERE visit_id = ?", (payload,))
+        execute_query("DELETE FROM Visit_Members WHERE visit_id = ?", (payload,))
+        execute_query("DELETE FROM Attachments WHERE visit_id = ?", (payload,))
+        execute_query("DELETE FROM Visits WHERE id = ?", (payload,))
         await query.edit_message_text("🗑️ تم حذف الزيارة وجميع بياناتها.")
-        log_action(update.effective_user.id, update.effective_user.full_name, 'delete_visit', 'visit', int(visit_id), 'حذف زيارة ونهجها بالكامل')
+        log_action(update.effective_user.id, update.effective_user.full_name, 'delete_visit', 'visit', int(payload), 'حذف زيارة ونهجها بالكامل')
 
     # --- إصدار التقرير ---
-    elif data.startswith("export_"):
-        visit_id = data.rsplit("_", 1)[-1]
+    elif action == "export":
+        if not payload or not payload.isdigit():
+            await query.answer("⚠️ بيانات الزيارة غير صحيحة.", show_alert=True)
+            return
         await query.edit_message_text("🔄 جاري إنشاء التقرير...")
-        file_name, inst_name = generate_docx_report(visit_id, bot_token=TOKEN)
+        file_name, inst_name = generate_docx_report(payload, bot_token=TOKEN)
         if not file_name:
             await context.bot.send_message(
                 query.message.chat_id, "⚠️ لا توجد بيانات لهذه الزيارة."
@@ -1548,19 +1605,19 @@ async def _show_visit_menu(query, visit_id):
     status_text = "مفتوحة 🟢" if status == "مفتوحة" else "مغلقة 🔴"
 
     keyboard = [
-        [InlineKeyboardButton("📄 إصدار التقرير Word", callback_data=f"export_{visit_id}")],
-        [InlineKeyboardButton("👁️ معاينة نصية سريعة", callback_data=f"preview_{visit_id}")],
-        [InlineKeyboardButton("📦 تجميع المرفقات (ZIP)", callback_data=f"attachments_{visit_id}")],
-        [InlineKeyboardButton("🗑️ حذف ملاحظة", callback_data=f"del_reports_{visit_id}")],
+        [InlineKeyboardButton("📄 إصدار التقرير Word", callback_data=build_callback_data("export", visit_id))],
+        [InlineKeyboardButton("👁️ معاينة نصية سريعة", callback_data=build_callback_data("preview", visit_id))],
+        [InlineKeyboardButton("📦 تجميع المرفقات (ZIP)", callback_data=build_callback_data("attachments", visit_id))],
+        [InlineKeyboardButton("🗑️ حذف ملاحظة", callback_data=build_callback_data("del_reports", visit_id))],
     ]
 
     if status == "مفتوحة":
-        keyboard.append([InlineKeyboardButton("🔗 نسخ الرابط", callback_data=f"link_{visit_id}")])
-        keyboard.append([InlineKeyboardButton("🔒 إغلاق الزيارة", callback_data=f"close_{visit_id}")])
+        keyboard.append([InlineKeyboardButton("🔗 نسخ الرابط", callback_data=build_callback_data("link", visit_id))])
+        keyboard.append([InlineKeyboardButton("🔒 إغلاق الزيارة", callback_data=build_callback_data("close", visit_id))])
     else:
-        keyboard.append([InlineKeyboardButton("🔓 إعادة فتح", callback_data=f"reopen_{visit_id}")])
+        keyboard.append([InlineKeyboardButton("🔓 إعادة فتح", callback_data=build_callback_data("reopen", visit_id))])
 
-    keyboard.append([InlineKeyboardButton("🗑️ حذف الزيارة نهائياً", callback_data=f"delete_{visit_id}")])
+    keyboard.append([InlineKeyboardButton("🗑️ حذف الزيارة نهائياً", callback_data=build_callback_data("delete", visit_id))])
 
     await query.edit_message_text(
         f"🏥 <b>{inst_name}</b>\n"
@@ -1607,7 +1664,7 @@ async def _show_deletable_reports(query, visit_id):
     keyboard = [
         [InlineKeyboardButton(
             f"🗑 {r[1]} / {r[2][:20]}",
-            callback_data=f"delrep_{r[0]}"
+            callback_data=build_callback_data("delrep", r[0])
         )]
         for r in reports
     ]
@@ -1709,6 +1766,17 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+    logger.exception("Unhandled exception in Telegram bot handler")
+    try:
+        if isinstance(update, Update) and update.effective_message:
+            await update.effective_message.reply_text(
+                "⚠️ حدث خطأ غير متوقع. حاول مرة أخرى لاحقاً."
+            )
+    except Exception:
+        logger.exception("Failed to notify user about the error")
+
+
 async def show_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "💡 كيفية استخدام البوت:\n"
@@ -1732,6 +1800,7 @@ def main():
 
     # --- معالج الـ Callback ---
     application.add_handler(CallbackQueryHandler(visit_callback_handler))
+    application.add_error_handler(error_handler)
 
     # --- إدارة الزيارات والإحصائيات ---
     application.add_handler(CommandHandler("visits", manage_visits))
