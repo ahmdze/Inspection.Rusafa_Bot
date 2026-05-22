@@ -450,7 +450,90 @@ async def start_another_report(update: Update, context: ContextTypes.DEFAULT_TYP
     return AXIS_NAME
 
 # ==========================================
-# 2. خطوات إدخال التقرير
+# 2. حفظ اسم العضو والعنوان الوظيفي
+# ==========================================
+async def save_member_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """حفظ الاسم الثلاثي للعضو والانتقال لطلب العنوان الوظيفي"""
+    user = update.effective_user
+    full_name = update.message.text.strip()
+    
+    if len(full_name) < 3:
+        await update.message.reply_text(
+            "⚠️ الرجاء إدخال اسم ثلاثي صحيح (على الأقل 3 أحرف).\n\n"
+            "📝 <b>أدخل اسمك الثلاثي كما يظهر في الهوية الوظيفية:</b>",
+            parse_mode="HTML"
+        )
+        return ENTER_MEMBER_NAME
+    
+    # حفظ الاسم في متغيرات الجلسة
+    context.user_data['member_full_name'] = full_name
+    
+    await update.message.reply_text(
+        f"✅ تم حفظ الاسم: <b>{full_name}</b>\n\n"
+        "📝 <b>الرجاء إدخال عنوانك الوظيفي (مثال: معلم، مراقب، مشرف...):</b>",
+        parse_mode="HTML"
+    )
+    return ENTER_JOB_TITLE
+
+
+async def save_member_job_title(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """حفظ العنوان الوظيفي وإدخال العضو إلى جدول Visit_Members ثم الانتقال للمحاور"""
+    user = update.effective_user
+    job_title = update.message.text.strip()
+    
+    if len(job_title) < 2:
+        await update.message.reply_text(
+            "⚠️ الرجاء إدخال عنوان وظيفي صحيح.\n\n"
+            "📝 <b>أدخل عنوانك الوظيفي (مثال: معلم، مراقب، مشرف...):</b>",
+            parse_mode="HTML"
+        )
+        return ENTER_JOB_TITLE
+    
+    visit_id = context.user_data.get('report_visit_id')
+    full_name = context.user_data.get('member_full_name', user.full_name)
+    
+    # إضافة العضو إلى قاعدة البيانات مع الاسم والعنوان الوظيفي
+    try:
+        execute_query(
+            """INSERT INTO Visit_Members (visit_id, user_id, user_name, job_title)
+               VALUES (?, ?, ?, ?)""",
+            (visit_id, user.id, full_name, job_title)
+        )
+        
+        # الحصول على اسم المؤسسة للترحيب
+        visit = execute_query(
+            "SELECT institution_name FROM Visits WHERE id = ?", (visit_id,), fetch=True
+        )
+        institution_name = visit[0][0] if visit else "الزيارة"
+        
+        await update.message.reply_text(
+            f"✅ تم تسجيل بياناتك بنجاح!\n"
+            f"👤 الاسم: {full_name}\n"
+            f"💼 المسمى الوظيفي: {job_title}\n\n"
+            f"🏥 <b>المؤسسة: {institution_name}</b>\n\n"
+            "اختر <b>المحور</b> أو أضف مرفقاً:",
+            reply_markup=ReplyKeyboardMarkup(REPORT_START_KB, one_time_keyboard=True, resize_keyboard=True),
+            parse_mode="HTML"
+        )
+        
+        # تنظيف متغيرات الجلسة المؤقتة
+        context.user_data.pop('member_full_name', None)
+        context.user_data.pop('member_user_name', None)
+        
+        return AXIS_NAME
+        
+    except Exception as e:
+        logger.error(f"Error saving member data: {e}")
+        await update.message.reply_text(
+            "⚠️ حدث خطأ أثناء حفظ بياناتك. حاول مرة أخرى.\n\n"
+            "إذا استمر الخطأ، تواصل مع المشرف.",
+            parse_mode="HTML"
+        )
+        return ConversationHandler.END
+
+
+# ==========================================
+# 3. خطوات إدخال التقرير
 # ==========================================
 async def get_axis_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['current_state'] = AXIS_NAME
@@ -1842,6 +1925,8 @@ def main():
             MessageHandler(filters.Regex("^➕ إرسال رد آخر$"), start_another_report)
         ],
         states={
+            ENTER_MEMBER_NAME:   [MessageHandler(filters.TEXT & ~filters.COMMAND, save_member_name)],
+            ENTER_JOB_TITLE:     [MessageHandler(filters.TEXT & ~filters.COMMAND, save_member_job_title)],
             DRAFT_RESUME:      [MessageHandler(filters.TEXT & ~filters.COMMAND, resume_draft_choice)],
             AXIS_NAME:         [MessageHandler(filters.TEXT & ~filters.COMMAND, get_axis_name)],
             SECTION_NAME:      [MessageHandler(filters.TEXT & ~filters.COMMAND, get_section_name)],
