@@ -72,8 +72,8 @@ def init_db():
                     id SERIAL PRIMARY KEY,
                     institution_name TEXT NOT NULL,
                     visit_date TEXT,
-                    manager_id INTEGER,
-                    leader_id INTEGER,
+                    manager_id BIGINT,
+                    leader_id BIGINT,
                     status TEXT DEFAULT 'مفتوحة',
                     scheduled_date TEXT DEFAULT NULL,
                     reminder_sent INTEGER DEFAULT 0,
@@ -86,7 +86,7 @@ def init_db():
                 CREATE TABLE IF NOT EXISTS Visit_Members (
                     id SERIAL PRIMARY KEY,
                     visit_id INTEGER NOT NULL,
-                    user_id INTEGER NOT NULL,
+                    user_id BIGINT NOT NULL,
                     user_name TEXT,
                     joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (visit_id) REFERENCES Visits (id) ON DELETE CASCADE,
@@ -98,7 +98,7 @@ def init_db():
                 CREATE TABLE IF NOT EXISTS Reports (
                     id SERIAL PRIMARY KEY,
                     visit_id INTEGER NOT NULL,
-                    user_id INTEGER NOT NULL,
+                    user_id BIGINT NOT NULL,
                     axis_name TEXT NOT NULL,
                     section_name TEXT NOT NULL,
                     notes TEXT,
@@ -113,7 +113,7 @@ def init_db():
                 CREATE TABLE IF NOT EXISTS Attachments (
                     id SERIAL PRIMARY KEY,
                     visit_id INTEGER NOT NULL,
-                    user_id INTEGER NOT NULL,
+                    user_id BIGINT NOT NULL,
                     user_name TEXT,
                     file_id TEXT NOT NULL,
                     file_type TEXT,
@@ -128,7 +128,7 @@ def init_db():
                 CREATE TABLE IF NOT EXISTS Drafts (
                     id SERIAL PRIMARY KEY,
                     visit_id INTEGER NOT NULL,
-                    user_id INTEGER NOT NULL,
+                    user_id BIGINT NOT NULL,
                     user_name TEXT,
                     state TEXT,
                     payload TEXT,
@@ -141,7 +141,7 @@ def init_db():
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS Audit_Log (
                     id SERIAL PRIMARY KEY,
-                    user_id INTEGER,
+                    user_id BIGINT,
                     user_name TEXT,
                     action TEXT NOT NULL,
                     target_type TEXT,
@@ -154,7 +154,7 @@ def init_db():
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS User_Sessions (
                     id SERIAL PRIMARY KEY,
-                    user_id INTEGER NOT NULL UNIQUE,
+                    user_id BIGINT NOT NULL UNIQUE,
                     first_name TEXT,
                     last_name TEXT,
                     username TEXT,
@@ -346,6 +346,17 @@ def run_migrations(conn):
          "ALTER TABLE Visits ADD COLUMN closed_at TIMESTAMP"),
         ('add_created_at_to_visits',
          "ALTER TABLE Visits ADD COLUMN created_at TIMESTAMP"),
+        ('fix_user_id_types_to_bigint',
+         """DO $$ BEGIN
+            ALTER TABLE Visits ALTER COLUMN manager_id TYPE BIGINT;
+            ALTER TABLE Visits ALTER COLUMN leader_id TYPE BIGINT;
+            ALTER TABLE Visit_Members ALTER COLUMN user_id TYPE BIGINT;
+            ALTER TABLE Reports ALTER COLUMN user_id TYPE BIGINT;
+            ALTER TABLE Attachments ALTER COLUMN user_id TYPE BIGINT;
+            ALTER TABLE Drafts ALTER COLUMN user_id TYPE BIGINT;
+            ALTER TABLE Audit_Log ALTER COLUMN user_id TYPE BIGINT;
+            ALTER TABLE User_Sessions ALTER COLUMN user_id TYPE BIGINT;
+        EXCEPTION WHEN OTHERS THEN NULL; END $$"""),
     ]
     
     for migration_name, sql in migrations:

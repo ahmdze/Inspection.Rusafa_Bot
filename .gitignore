@@ -1,1 +1,3 @@
-(bot.py and database.py are source files, no build artifacts, dependencies, or temp files in the changes)
+(database.py is a source file, so no need to add anything to .gitignore)
+
+# No changes needed - only source file modifications detected
