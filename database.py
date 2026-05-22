@@ -349,18 +349,46 @@ def run_migrations(conn):
     
     for migration_name, sql in migrations:
         # التحقق مما إذا كانت الهجرة قد طُبقت مسبقاً
-        if USE_POSTGRES:
-            cursor.execute(
-                "SELECT id FROM Schema_Migrations WHERE migration_name = %s",
-                (migration_name,)
-            )
-        else:
-            cursor.execute(
-                "SELECT id FROM Schema_Migrations WHERE migration_name = ?",
-                (migration_name,)
-            )
-        if cursor.fetchone():
-            continue
+        try:
+            if USE_POSTGRES:
+                cursor.execute(
+                    "SELECT id FROM Schema_Migrations WHERE migration_name = %s",
+                    (migration_name,)
+                )
+            else:
+                cursor.execute(
+                    "SELECT id FROM Schema_Migrations WHERE migration_name = ?",
+                    (migration_name,)
+                )
+            if cursor.fetchone():
+                logger.warning(f"⚠️ Migration skipped (already exists): {migration_name}")
+                continue
+        except Exception as check_error:
+            # Handle case where transaction is in failed state or table doesn't exist
+            error_msg = str(check_error).lower()
+            if 'does not exist' in error_msg or 'current transaction is aborted' in error_msg:
+                # Rollback to clear failed transaction state
+                conn.rollback()
+                # Re-check after rollback
+                try:
+                    if USE_POSTGRES:
+                        cursor.execute(
+                            "SELECT id FROM Schema_Migrations WHERE migration_name = %s",
+                            (migration_name,)
+                        )
+                    else:
+                        cursor.execute(
+                            "SELECT id FROM Schema_Migrations WHERE migration_name = ?",
+                            (migration_name,)
+                        )
+                    if cursor.fetchone():
+                        logger.warning(f"⚠️ Migration skipped (already exists): {migration_name}")
+                        continue
+                except:
+                    conn.rollback()
+                    pass
+            else:
+                raise
         
         try:
             if USE_POSTGRES:
@@ -375,6 +403,7 @@ def run_migrations(conn):
                     "INSERT INTO Schema_Migrations (migration_name) VALUES (?)",
                     (migration_name,)
                 )
+            conn.commit()
             logger.info(f"✅ Migration applied: {migration_name}")
         except Exception as e:
             error_msg = str(e).lower()
