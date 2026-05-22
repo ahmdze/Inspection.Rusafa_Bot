@@ -88,6 +88,7 @@ def init_db():
                     visit_id INTEGER NOT NULL,
                     user_id BIGINT NOT NULL,
                     user_name TEXT,
+                    full_name TEXT,
                     job_title TEXT,
                     joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (visit_id) REFERENCES Visits (id) ON DELETE CASCADE,
@@ -207,6 +208,7 @@ def init_db():
                     visit_id INTEGER NOT NULL,
                     user_id BIGINT NOT NULL,
                     user_name TEXT,
+                    full_name TEXT,
                     job_title TEXT,
                     joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (visit_id) REFERENCES Visits (id) ON DELETE CASCADE,
@@ -364,6 +366,8 @@ def run_migrations(conn):
         EXCEPTION WHEN OTHERS THEN NULL; END $$"""),
         ('add_job_title_to_visit_members',
          "ALTER TABLE Visit_Members ADD COLUMN job_title TEXT"),
+        ('add_full_name_to_visit_members',
+         "ALTER TABLE Visit_Members ADD COLUMN full_name TEXT"),
     ]
     
     for migration_name, sql in migrations:

@@ -495,9 +495,9 @@ async def save_member_job_title(update: Update, context: ContextTypes.DEFAULT_TY
     # إضافة العضو إلى قاعدة البيانات مع الاسم والعنوان الوظيفي
     try:
         execute_query(
-            """INSERT INTO Visit_Members (visit_id, user_id, user_name, job_title)
-               VALUES (?, ?, ?, ?)""",
-            (visit_id, user.id, full_name, job_title)
+            """INSERT INTO Visit_Members (visit_id, user_id, user_name, full_name, job_title)
+               VALUES (?, ?, ?, ?, ?)""",
+            (visit_id, user.id, user.full_name, full_name, job_title)
         )
         
         # الحصول على اسم المؤسسة للترحيب

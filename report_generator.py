@@ -215,10 +215,11 @@ def load_visit_data(visit_id):
     members = execute_query(
         """
         SELECT DISTINCT
-            user_name
+            COALESCE(full_name, user_name) as display_name,
+            job_title
         FROM Visit_Members
         WHERE visit_id = ?
-        ORDER BY user_name ASC
+        ORDER BY display_name ASC
         """,
         (visit_id,),
         fetch=True
@@ -424,7 +425,14 @@ class ReportBuilder:
             return
 
         for idx, member in enumerate(members, start=1):
-            add_bullet(self.doc, f"{idx}- {member}")
+            # member is now a tuple (display_name, job_title)
+            display_name = member[0] if len(member) > 0 else "غير معروف"
+            job_title = member[1] if len(member) > 1 and member[1] else ""
+            
+            if job_title:
+                add_bullet(self.doc, f"{idx}- {display_name} ({job_title})")
+            else:
+                add_bullet(self.doc, f"{idx}- {display_name}")
 
     # =====================================================
 
