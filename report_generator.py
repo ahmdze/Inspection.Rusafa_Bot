@@ -172,7 +172,7 @@ def load_visit_data(visit_id):
         """
         SELECT institution_name, visit_date
         FROM Visits
-        WHERE id = ?
+        WHERE id = %s
         """,
         (visit_id,),
         fetch=True
@@ -193,7 +193,7 @@ def load_visit_data(visit_id):
             recommendations,
             user_id
         FROM Reports
-        WHERE visit_id = ?
+        WHERE visit_id = %s
         ORDER BY id ASC
         """,
         (visit_id,),
@@ -204,7 +204,7 @@ def load_visit_data(visit_id):
         """
         SELECT COUNT(*)
         FROM Attachments
-        WHERE visit_id = ?
+        WHERE visit_id = %s
         """,
         (visit_id,),
         fetch=True
@@ -218,7 +218,7 @@ def load_visit_data(visit_id):
             COALESCE(full_name, user_name) as display_name,
             job_title
         FROM Visit_Members
-        WHERE visit_id = ?
+        WHERE visit_id = %s
         ORDER BY display_name ASC
         """,
         (visit_id,),
@@ -394,7 +394,7 @@ class ReportBuilder:
             """
             SELECT COUNT(*)
             FROM Reports
-            WHERE visit_id = ?
+            WHERE visit_id = %s
             """,
             (self.visit_id,),
             fetch=True
