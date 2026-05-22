@@ -7,6 +7,7 @@ import logging
 import hashlib
 import sqlite3
 import requests
+import threading
 from datetime import datetime, timedelta
 from functools import wraps
 from telegram import (
@@ -30,6 +31,7 @@ from telegram.error import TelegramError, RetryAfter, NetworkError
 
 from database import init_db, get_connection, upsert_user_session, delete_user_data, cleanup_old_data, delete_visit
 from report_generator import generate_docx_report
+from web_server import app as web_app
 
 # ==========================================
 # إعداد Logging مركزي
@@ -1075,7 +1077,7 @@ async def get_schedule_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🏥 المؤسسة: {inst_name}\n"
         f"📅 التاريخ: {visit_date}\n"
         f"{'⏰ تذكير مجدول: ' + scheduled_date if scheduled_date else ''}\n\n"
-        f"🔗 <b>رابط الانضمام:</b>\n<code>{link}</code>",
+        f"🔗 <b>رابط الانضمام:</b>\n<code>{link}</code>\n\n⚠️ <b>ملاحظة:</b> عند فتح الرابط، سيُطلب من العضو إدخال اسمه الثلاثي قبل الانضمام.",
         reply_markup=ReplyKeyboardMarkup(ADMIN_MENU_KB, resize_keyboard=True),
         parse_mode="HTML"
     )
@@ -1093,7 +1095,7 @@ async def send_visit_reminder(context: ContextTypes.DEFAULT_TYPE):
                 f"🏥 المؤسسة: {data['inst_name']}\n"
                 f"📅 التاريخ: {data['visit_date']}\n"
                 f"🔗 رابط الزيارة:\n"
-                f"<code>{WEB_URL}/join/{data['visit_id']}</code>",
+                f"<code>{WEB_URL}/join/{data['visit_id']}</code>\n\n⚠️ <b>ملاحظة:</b> عند فتح الرابط، سيُطلب من العضو إدخال اسمه الثلاثي قبل الانضمام.",
                 parse_mode="HTML"
             )
         except Exception:
@@ -1302,7 +1304,7 @@ async def visit_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         visit_id = data.split("_")[1]
         await query.message.reply_text(
             f"🔗 <b>رابط الانضمام:</b>\n"
-            f"<code>{WEB_URL}/join/{visit_id}</code>",
+            f"<code>{WEB_URL}/join/{visit_id}</code>\n\n⚠️ <b>ملاحظة:</b> عند فتح الرابط، سيُطلب من العضو إدخال اسمه الثلاثي قبل الانضمام.",
             parse_mode="HTML"
         )
 
