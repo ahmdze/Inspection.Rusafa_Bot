@@ -27,7 +27,7 @@ from telegram.ext import (
 )
 from telegram.error import TelegramError, RetryAfter, NetworkError
 
-from database import init_db, get_connection, upsert_user_session, delete_user_data, cleanup_old_data
+from database import init_db, get_connection, upsert_user_session, delete_user_data, cleanup_old_data, USE_POSTGRES
 from report_generator import generate_docx_report
 
 # ==========================================
@@ -230,10 +230,14 @@ def execute_query(query, params=(), fetch=False):
     try:
         with get_connection() as conn:
             cursor = conn.cursor()
+            if USE_POSTGRES:
+                # Convert SQLite ? placeholders to PostgreSQL %s
+                query = query.replace('?', '%s')
             cursor.execute(query, params)
             if fetch:
                 return cursor.fetchall()
-            conn.commit()
+            # For SQLite, commit is handled by the context manager
+            # For PostgreSQL, commit is also handled by the context manager
     except Exception as e:
         logger.error(f"Database error executing query: {e}")
         raise
@@ -1088,12 +1092,14 @@ async def get_schedule_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     with get_connection() as conn:
         cursor = conn.cursor()
-        cursor.execute(
-            "INSERT INTO Visits (institution_name, visit_date, manager_id, status, scheduled_date) VALUES (?, ?, ?, 'مفتوحة', ?)",
-            (inst_name, visit_date, update.effective_user.id, scheduled_date)
-        )
-        visit_id = cursor.lastrowid
-        conn.commit()
+        if USE_POSTGRES:
+            query = "INSERT INTO Visits (institution_name, visit_date, manager_id, status, scheduled_date) VALUES (%s, %s, %s, 'مفتوحة', %s) RETURNING id"
+            cursor.execute(query, (inst_name, visit_date, update.effective_user.id, scheduled_date))
+            visit_id = cursor.fetchone()[0]
+        else:
+            query = "INSERT INTO Visits (institution_name, visit_date, manager_id, status, scheduled_date) VALUES (?, ?, ?, 'مفتوحة', ?)"
+            cursor.execute(query, (inst_name, visit_date, update.effective_user.id, scheduled_date))
+            visit_id = cursor.lastrowid
 
     if scheduled_date:
         try:
