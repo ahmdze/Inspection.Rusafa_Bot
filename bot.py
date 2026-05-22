@@ -364,8 +364,7 @@ async def start_and_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
             (visit_id, user.id), fetch=True
         )
         if not existing:
-            # حفظ اسم المستخدم والوظيفة في متغيرات الجلسة
-            context.user_data['member_user_name'] = user.full_name
+            # حفظ visit_id في متغيرات الجلسة
             context.user_data['report_visit_id'] = visit_id
             await update.message.reply_text(
                 f"✅ تم دخولك إلى زيارة: <b>{institution_name}</b>\n\n"
@@ -455,9 +454,9 @@ async def start_another_report(update: Update, context: ContextTypes.DEFAULT_TYP
 async def save_member_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """حفظ الاسم الثلاثي للعضو والانتقال لطلب العنوان الوظيفي"""
     user = update.effective_user
-    full_name = update.message.text.strip()
+    user_name = update.message.text.strip()
     
-    if len(full_name) < 3:
+    if len(user_name) < 3:
         await update.message.reply_text(
             "⚠️ الرجاء إدخال اسم ثلاثي صحيح (على الأقل 3 أحرف).\n\n"
             "📝 <b>أدخل اسمك الثلاثي كما يظهر في الهوية الوظيفية:</b>",
@@ -466,10 +465,10 @@ async def save_member_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ENTER_MEMBER_NAME
     
     # حفظ الاسم في متغيرات الجلسة
-    context.user_data['member_full_name'] = full_name
+    context.user_data['member_user_name'] = user_name
     
     await update.message.reply_text(
-        f"✅ تم حفظ الاسم: <b>{full_name}</b>\n\n"
+        f"✅ تم حفظ الاسم: <b>{user_name}</b>\n\n"
         "📝 <b>الرجاء إدخال عنوانك الوظيفي (مثال: معلم، مراقب، مشرف...):</b>",
         parse_mode="HTML"
     )
@@ -490,14 +489,14 @@ async def save_member_job_title(update: Update, context: ContextTypes.DEFAULT_TY
         return ENTER_JOB_TITLE
     
     visit_id = context.user_data.get('report_visit_id')
-    full_name = context.user_data.get('member_full_name', user.full_name)
+    user_name = context.user_data.get('member_user_name', user.full_name)
     
     # إضافة العضو إلى قاعدة البيانات مع الاسم والعنوان الوظيفي
     try:
         execute_query(
             """INSERT INTO Visit_Members (visit_id, user_id, user_name, full_name, job_title)
                VALUES (?, ?, ?, ?, ?)""",
-            (visit_id, user.id, user.full_name, full_name, job_title)
+            (visit_id, user.id, user.full_name, user_name, job_title)
         )
         
         # الحصول على اسم المؤسسة للترحيب
@@ -507,11 +506,11 @@ async def save_member_job_title(update: Update, context: ContextTypes.DEFAULT_TY
         institution_name = visit[0][0] if visit else "الزيارة"
         
         # تخزين full_name بالصيغة المطلوبة للاستخدام في الإشعارات
-        context.user_data['member_display_full_name'] = f"{job_title} - {full_name}"
+        context.user_data['member_display_full_name'] = f"{job_title} - {user_name}"
         
         await update.message.reply_text(
             f"✅ تم تسجيل بياناتك بنجاح!\n"
-            f"👤 الاسم: {full_name}\n"
+            f"👤 الاسم: {user_name}\n"
             f"💼 المسمى الوظيفي: {job_title}\n\n"
             f"🏥 <b>المؤسسة: {institution_name}</b>\n\n"
             "اختر <b>المحور</b> أو أضف مرفقاً:",
@@ -520,7 +519,6 @@ async def save_member_job_title(update: Update, context: ContextTypes.DEFAULT_TY
         )
         
         # تنظيف متغيرات الجلسة المؤقتة
-        context.user_data.pop('member_full_name', None)
         context.user_data.pop('member_user_name', None)
         
         return AXIS_NAME
