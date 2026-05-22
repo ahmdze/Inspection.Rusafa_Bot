@@ -127,7 +127,7 @@ def is_valid_text(value, max_length=200):
 # حالات المحادثة
 # ==========================================
 INSTITUTION_NAME, VISIT_DATE, SCHEDULE_DATE = range(3)
-AXIS_NAME, SECTION_NAME, NOTES, NOTE_CONFIRM, REC_DESTINATION, RECOMMENDATIONS, LOOP_OR_END, SUMMARY_CONFIRM = range(10, 18)
+ENTER_MEMBER_NAME, ENTER_JOB_TITLE, AXIS_NAME, SECTION_NAME, NOTES, NOTE_CONFIRM, REC_DESTINATION, RECOMMENDATIONS, LOOP_OR_END, SUMMARY_CONFIRM = range(10)
 SEARCH_QUERY = 30
 INSTITUTION_SEARCH = 31
 ATTACHMENT_CAPTION = 40
@@ -364,25 +364,17 @@ async def start_and_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
             (visit_id, user.id), fetch=True
         )
         if not existing:
-            execute_query(
-                "INSERT INTO Visit_Members (visit_id, user_id, user_name) VALUES (?, ?, ?)",
-                (visit_id, user.id, user.full_name)
+            # حفظ اسم المستخدم والوظيفة في متغيرات الجلسة
+            context.user_data['member_user_name'] = user.full_name
+            context.user_data['report_visit_id'] = visit_id
+            await update.message.reply_text(
+                f"✅ تم دخولك إلى زيارة: <b>{institution_name}</b>\n\n"
+                "📝 <b>الرجاء إدخال اسمك الثلاثي كما يظهر في الهوية الوظيفية:</b>",
+                parse_mode="HTML"
             )
-            # 🔔 إشعار المدير بانضمام عضو جديد
-            for admin_id in ADMIN_IDS:
-                try:
-                    await context.bot.send_message(
-                        admin_id,
-                        f"🔔 <b>عضو جديد انضم لزيارة</b>\n"
-                        f"👤 الاسم: {user.full_name}\n"
-                        f"🏥 الزيارة: {institution_name}",
-                        parse_mode="HTML"
-                    )
-                except TelegramError as e:
-                    logger.warning(f"Failed to notify admin {admin_id}: {e}")
-                except Exception as e:
-                    logger.error(f"Unexpected error notifying admin {admin_id}: {e}")
-
+            return ENTER_MEMBER_NAME
+        
+        # عضو موجود مسبقاً -直接进入 المحاور
         context.user_data['report_visit_id'] = visit_id
         draft = load_draft(user.id, visit_id)
         if draft:
