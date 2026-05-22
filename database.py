@@ -91,6 +91,7 @@ def init_db():
                     visit_id INTEGER NOT NULL,
                     user_id INTEGER NOT NULL,
                     user_name TEXT,
+                    full_name TEXT,
                     joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (visit_id) REFERENCES Visits (id) ON DELETE CASCADE,
                     UNIQUE(visit_id, user_id)
@@ -216,6 +217,7 @@ def init_db():
                     visit_id INTEGER NOT NULL,
                     user_id INTEGER NOT NULL,
                     user_name TEXT,
+                    full_name TEXT,
                     joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (visit_id) REFERENCES Visits (id) ON DELETE CASCADE,
                     UNIQUE(visit_id, user_id)
@@ -361,6 +363,8 @@ def run_migrations(conn):
          "ALTER TABLE Visits ADD COLUMN IF NOT EXISTS closed_at TIMESTAMP"),
         ('add_created_at_to_visits',
          "ALTER TABLE Visits ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"),
+        ('add_full_name_to_visit_members',
+         "ALTER TABLE Visit_Members ADD COLUMN IF NOT EXISTS full_name TEXT"),
     ]
     
     for migration_name, sql in migrations:
@@ -476,6 +480,24 @@ def upsert_user_session(user_id, first_name, last_name, username, language_code,
                     last_seen = CURRENT_TIMESTAMP
             ''', (user_id, first_name, last_name, username, language_code, 1 if is_bot else 0))
         conn.commit()
+
+
+def update_member_full_name(visit_id, user_id, full_name):
+    """تحديث الاسم الثلاثي للعضو في زيارة معينة"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        if USE_POSTGRES:
+            cursor.execute(
+                "UPDATE Visit_Members SET full_name = %s WHERE visit_id = %s AND user_id = %s",
+                (full_name, visit_id, user_id)
+            )
+        else:
+            cursor.execute(
+                "UPDATE Visit_Members SET full_name = ? WHERE visit_id = ? AND user_id = ?",
+                (full_name, visit_id, user_id)
+            )
+        conn.commit()
+        return cursor.rowcount > 0
 
 
 def delete_visit(visit_id):

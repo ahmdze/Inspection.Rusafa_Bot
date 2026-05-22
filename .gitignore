@@ -1,1 +1,20 @@
-Nothing should be ignored based on the provided file changes. The changes only include source/config files (README_RAILWAY.md and database.py) without any build artifacts, dependencies, or temporary files that would require gitignore rules.
+# Dependencies
+venv/
+.venv/
+__pycache__/
+*.pyc
+.mypy_cache/
+.pytest_cache/
+
+# Logs and temp files
+*.log
+*.tmp
+
+# Environment
+.env
+.env.local
+*.env.*
+
+# Editors
+.vscode/
+.idea/
