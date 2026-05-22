@@ -359,43 +359,15 @@ async def start_and_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return ConversationHandler.END
 
         institution_name = visit[0][0]
-        existing = execute_query(
-            "SELECT * FROM Visit_Members WHERE visit_id = ? AND user_id = ?",
-            (visit_id, user.id), fetch=True
-        )
-        if not existing:
-            # حفظ visit_id في متغيرات الجلسة
-            context.user_data['report_visit_id'] = visit_id
-            await update.message.reply_text(
-                f"✅ تم دخولك إلى زيارة: <b>{institution_name}</b>\n\n"
-                "📝 <b>الرجاء إدخال اسمك الثلاثي كما يظهر في الهوية الوظيفية:</b>",
-                parse_mode="HTML"
-            )
-            return ENTER_MEMBER_NAME
-        
-        # عضو موجود مسبقاً -直接进入 المحاور
+        # تجاهل البيانات السابقة وسؤال المستخدم عن الاسم والعنوان في كل مرة
+        # حفظ visit_id في متغيرات الجلسة
         context.user_data['report_visit_id'] = visit_id
-        draft = load_draft(user.id, visit_id)
-        if draft:
-            context.user_data['pending_draft'] = draft
-            await update.message.reply_text(
-                f"✅ تم دخولك إلى زيارة: <b>{institution_name}</b>\n\n"
-                "لديك مسودة محفوظة. هل تريد استكمالها أم البدء جديداً؟",
-                reply_markup=ReplyKeyboardMarkup(
-                    [["استكمال المسودة"], ["بدء جديد"]],
-                    one_time_keyboard=True, resize_keyboard=True
-                ),
-                parse_mode="HTML"
-            )
-            return DRAFT_RESUME
-
         await update.message.reply_text(
             f"✅ تم دخولك إلى زيارة: <b>{institution_name}</b>\n\n"
-            f"اختر <b>المحور</b> أو أضف مرفقاً:",
-            reply_markup=ReplyKeyboardMarkup(REPORT_START_KB, one_time_keyboard=True, resize_keyboard=True),
+            "📝 <b>الرجاء إدخال اسمك الثلاثي كما يظهر في الهوية الوظيفية:</b>",
             parse_mode="HTML"
         )
-        return AXIS_NAME
+        return ENTER_MEMBER_NAME
 
     else:
         if is_admin(user.id):
@@ -491,12 +463,15 @@ async def save_member_job_title(update: Update, context: ContextTypes.DEFAULT_TY
     visit_id = context.user_data.get('report_visit_id')
     user_name = context.user_data.get('member_user_name', user.full_name)
     
+    # حساب full_name بالصيغة المطلوبة: job_title - user_name
+    full_name_value = f"{job_title} - {user_name}"
+    
     # إضافة العضو إلى قاعدة البيانات مع الاسم والعنوان الوظيفي
     try:
         execute_query(
             """INSERT INTO Visit_Members (visit_id, user_id, user_name, full_name, job_title)
                VALUES (?, ?, ?, ?, ?)""",
-            (visit_id, user.id, user.full_name, user_name, job_title)
+            (visit_id, user.id, user_name, full_name_value, job_title)
         )
         
         # الحصول على اسم المؤسسة للترحيب
@@ -506,7 +481,7 @@ async def save_member_job_title(update: Update, context: ContextTypes.DEFAULT_TY
         institution_name = visit[0][0] if visit else "الزيارة"
         
         # تخزين full_name بالصيغة المطلوبة للاستخدام في الإشعارات
-        context.user_data['member_display_full_name'] = f"{job_title} - {user_name}"
+        context.user_data['member_display_full_name'] = full_name_value
         
         await update.message.reply_text(
             f"✅ تم تسجيل بياناتك بنجاح!\n"

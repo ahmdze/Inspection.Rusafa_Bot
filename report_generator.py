@@ -216,9 +216,10 @@ def load_visit_data(visit_id):
         """
         SELECT 
             CASE 
-                WHEN full_name IS NOT NULL AND job_title IS NOT NULL THEN job_title || ' - ' || full_name
                 WHEN full_name IS NOT NULL THEN full_name
+                WHEN job_title IS NOT NULL AND user_name IS NOT NULL THEN job_title || ' - ' || user_name
                 WHEN job_title IS NOT NULL THEN job_title
+                WHEN user_name IS NOT NULL THEN user_name
                 ELSE COALESCE(user_name, 'غير معروف')
             END as display_name,
             job_title
