@@ -1,30 +1,41 @@
 ```
-# Python
+# Environment variables
+.env
+.env.local
+.env.*
+
+# Python specific
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
+.Python
+env/
+venv/
+.venv/
+.venv.bak/
+pip-log.txt
+pip-delete-this-directory.txt
 
 # Dependencies
-.venv/
-venv/
-env/
-.env
-.env.local
-*.env.*
+requirements.txt.bak
 
 # Logs
 *.log
 
-# Coverage
+# Coverage reports
 .coverage
 htmlcov/
-coverage/
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
 
-# Database
-*.sqlite
-*.db
-
-# Tests
-.pytest_cache/
+# Unit test / coverage reports
+.junit.xml
+.nyc_output/
+istanbul/
+.lcov/
 ```
