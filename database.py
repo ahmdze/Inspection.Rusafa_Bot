@@ -378,11 +378,19 @@ def run_migrations(conn):
             logger.info(f"✅ Migration applied: {migration_name}")
         except Exception as e:
             error_msg = str(e).lower()
-            if "duplicate column" in error_msg or "already exists" in error_msg:
+            if "duplicate column" in error_msg or "already exists" in error_msg or "duplicate column name" in error_msg:
                 # العمود موجود بالفعل، نعتبر الهجرة مطبقة
                 logger.warning(f"⚠️ Migration skipped (already exists): {migration_name}")
                 # في Postgres عند حدوث خطأ فإن المعاملة تدخل في حالة فشل
-                # لذا لا يمكننا تنفيذ أي أمر آخر فيها، يجب استخدام continue
+                # لذا يجب عمل rollback ثم إعادة البدء بمعامل جديدة للهجرة التالية
+                if USE_POSTGRES:
+                    conn.rollback()
+                continue
+            elif "duplicate key" in error_msg or "unique constraint" in error_msg:
+                # الهجرة مسجلة بالفعل في جدول Schema_Migrations
+                logger.warning(f"⚠️ Migration already recorded: {migration_name}")
+                if USE_POSTGRES:
+                    conn.rollback()
                 continue
             else:
                 logger.error(f"Migration failed {migration_name}: {e}")
