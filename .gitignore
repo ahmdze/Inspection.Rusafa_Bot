@@ -1,1 +1,1 @@
-Nothing needs to be added to .gitignore since only a Python source file (`database.py`) was modified and there are no build artifacts, dependencies, or 
+(database.py is a source file, and there are no build artifacts, dependencies, or temp files in the changes)
