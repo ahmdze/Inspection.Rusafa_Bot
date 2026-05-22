@@ -42,6 +42,7 @@ def get_connection():
             # اتصال PostgreSQL
             conn = psycopg2.connect(DATABASE_URL)
             yield conn
+            conn.commit()  # Commit at the end for PostgreSQL
         else:
             # اتصال SQLite
             conn = sqlite3.connect(DB_PATH, timeout=30.0)
