@@ -795,7 +795,7 @@ async def _save_report_entry(update: Update, context: ContextTypes.DEFAULT_TYPE,
     )
 
 
-async def _notify_admins_report(context, user_name, visit_id, axis, section):
+async def _notify_admins_report(context, full_name, visit_id, axis, section):
     """إشعار المدراء عند إرسال ملاحظة جديدة"""
     visit_info = execute_query("SELECT institution_name FROM Visits WHERE id = ?", (visit_id,), fetch=True)
     if not visit_info:
@@ -806,7 +806,7 @@ async def _notify_admins_report(context, user_name, visit_id, axis, section):
             await context.bot.send_message(
                 admin_id,
                 f"📋 <b>ملاحظة جديدة أُضيفت</b>\n"
-                f"👤 المُرسل: {user_name}\n"
+                f"👤 المُرسل: {full_name}\n"
                 f"🏥 الزيارة: {inst}\n"
                 f"📌 المحور: {axis} / {section}",
                 parse_mode="HTML"
