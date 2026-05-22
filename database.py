@@ -380,16 +380,10 @@ def run_migrations(conn):
             error_msg = str(e).lower()
             if "duplicate column" in error_msg or "already exists" in error_msg:
                 # العمود موجود بالفعل، نعتبر الهجرة مطبقة
-                if USE_POSTGRES:
-                    cursor.execute(
-                        "INSERT INTO Schema_Migrations (migration_name) VALUES (%s) ON CONFLICT DO NOTHING",
-                        (migration_name,)
-                    )
-                else:
-                    cursor.execute(
-                        "INSERT OR IGNORE INTO Schema_Migrations (migration_name) VALUES (?)",
-                        (migration_name,)
-                    )
+                logger.warning(f"⚠️ Migration skipped (already exists): {migration_name}")
+                # في Postgres عند حدوث خطأ فإن المعاملة تدخل في حالة فشل
+                # لذا لا يمكننا تنفيذ أي أمر آخر فيها، يجب استخدام continue
+                continue
             else:
                 logger.error(f"Migration failed {migration_name}: {e}")
                 raise
