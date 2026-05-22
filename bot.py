@@ -5,7 +5,6 @@ import zipfile
 import asyncio
 import logging
 import hashlib
-import sqlite3
 import requests
 from datetime import datetime, timedelta
 from functools import wraps
@@ -235,7 +234,7 @@ def execute_query(query, params=(), fetch=False):
             if fetch:
                 return cursor.fetchall()
             conn.commit()
-    except sqlite3.Error as e:
+    except Exception as e:
         logger.error(f"Database error executing query: {e}")
         raise
     return None
