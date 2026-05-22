@@ -352,15 +352,15 @@ def run_migrations(conn):
     # قائمة الهجرات
     migrations = [
         ('add_rec_destination_to_reports', 
-         "ALTER TABLE Reports ADD COLUMN rec_destination TEXT"),
+         "ALTER TABLE Reports ADD COLUMN IF NOT EXISTS rec_destination TEXT"),
         ('add_scheduled_date_to_visits',
-         "ALTER TABLE Visits ADD COLUMN scheduled_date TEXT DEFAULT NULL"),
+         "ALTER TABLE Visits ADD COLUMN IF NOT EXISTS scheduled_date TEXT DEFAULT NULL"),
         ('add_reminder_sent_to_visits',
-         "ALTER TABLE Visits ADD COLUMN reminder_sent INTEGER DEFAULT 0"),
+         "ALTER TABLE Visits ADD COLUMN IF NOT EXISTS reminder_sent INTEGER DEFAULT 0"),
         ('add_closed_at_to_visits',
-         "ALTER TABLE Visits ADD COLUMN closed_at TIMESTAMP"),
+         "ALTER TABLE Visits ADD COLUMN IF NOT EXISTS closed_at TIMESTAMP"),
         ('add_created_at_to_visits',
-         "ALTER TABLE Visits ADD COLUMN created_at TIMESTAMP"),
+         "ALTER TABLE Visits ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"),
     ]
     
     for migration_name, sql in migrations:
@@ -376,6 +376,7 @@ def run_migrations(conn):
                 (migration_name,)
             )
         if cursor.fetchone():
+            logger.info(f"⏭️ Skipping migration (already applied): {migration_name}")
             continue
         
         try:
@@ -390,23 +391,30 @@ def run_migrations(conn):
                     "INSERT INTO Schema_Migrations (migration_name) VALUES (?)",
                     (migration_name,)
                 )
+            conn.commit()
             logger.info(f"✅ Migration applied: {migration_name}")
         except Exception as e:
             error_msg = str(e).lower()
             if "duplicate column" in error_msg or "already exists" in error_msg:
                 # العمود موجود بالفعل، نعتبر الهجرة مطبقة
-                if USE_POSTGRES:
-                    cursor.execute(
-                        "INSERT INTO Schema_Migrations (migration_name) VALUES (%s) ON CONFLICT DO NOTHING",
-                        (migration_name,)
-                    )
-                else:
-                    cursor.execute(
-                        "INSERT OR IGNORE INTO Schema_Migrations (migration_name) VALUES (?)",
-                        (migration_name,)
-                    )
+                try:
+                    if USE_POSTGRES:
+                        cursor.execute(
+                            "INSERT INTO Schema_Migrations (migration_name) VALUES (%s) ON CONFLICT DO NOTHING",
+                            (migration_name,)
+                        )
+                    else:
+                        cursor.execute(
+                            "INSERT OR IGNORE INTO Schema_Migrations (migration_name) VALUES (?)",
+                            (migration_name,)
+                        )
+                    conn.commit()
+                    logger.info(f"⏭️ Migration skipped (column exists): {migration_name}")
+                except Exception as insert_error:
+                    logger.warning(f"Could not record migration {migration_name}: {insert_error}")
             else:
                 logger.error(f"Migration failed {migration_name}: {e}")
+                conn.rollback()
                 raise
     
     conn.commit()
@@ -468,6 +476,36 @@ def upsert_user_session(user_id, first_name, last_name, username, language_code,
                     last_seen = CURRENT_TIMESTAMP
             ''', (user_id, first_name, last_name, username, language_code, 1 if is_bot else 0))
         conn.commit()
+
+
+def delete_visit(visit_id):
+    """حذف زيارة وجميع بياناتها المرتبطة من قاعدة البيانات"""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        
+        if USE_POSTGRES:
+            # حذف التقارير المرتبطة
+            cursor.execute("DELETE FROM Reports WHERE visit_id = %s", (visit_id,))
+            # حذف أعضاء الفريق
+            cursor.execute("DELETE FROM Visit_Members WHERE visit_id = %s", (visit_id,))
+            # حذف المرفقات
+            cursor.execute("DELETE FROM Attachments WHERE visit_id = %s", (visit_id,))
+            # حذف المسودات
+            cursor.execute("DELETE FROM Drafts WHERE visit_id = %s", (visit_id,))
+            # حذف الزيارة نفسها
+            cursor.execute("DELETE FROM Visits WHERE id = %s", (visit_id,))
+        else:
+            # SQLite
+            cursor.execute("DELETE FROM Reports WHERE visit_id = ?", (visit_id,))
+            cursor.execute("DELETE FROM Visit_Members WHERE visit_id = ?", (visit_id,))
+            cursor.execute("DELETE FROM Attachments WHERE visit_id = ?", (visit_id,))
+            cursor.execute("DELETE FROM Drafts WHERE visit_id = ?", (visit_id,))
+            cursor.execute("DELETE FROM Visits WHERE id = ?", (visit_id,))
+        
+        deleted_count = cursor.rowcount
+        conn.commit()
+        logger.info(f"🗑️ Deleted visit {visit_id} and all associated data")
+        return deleted_count > 0
 
 
 def delete_user_data(user_id):

@@ -28,7 +28,7 @@ from telegram.ext import (
 )
 from telegram.error import TelegramError, RetryAfter, NetworkError
 
-from database import init_db, get_connection, upsert_user_session, delete_user_data, cleanup_old_data
+from database import init_db, get_connection, upsert_user_session, delete_user_data, cleanup_old_data, delete_visit
 from report_generator import generate_docx_report
 
 # ==========================================
@@ -1365,12 +1365,13 @@ async def visit_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
 
     elif data.startswith("confirm_delete_"):
         visit_id = data.split("_")[1]
-        execute_query("DELETE FROM Reports WHERE visit_id = ?", (visit_id,))
-        execute_query("DELETE FROM Visit_Members WHERE visit_id = ?", (visit_id,))
-        execute_query("DELETE FROM Attachments WHERE visit_id = ?", (visit_id,))
-        execute_query("DELETE FROM Visits WHERE id = ?", (visit_id,))
-        await query.edit_message_text("🗑️ تم حذف الزيارة وجميع بياناتها.")
-        log_action(update.effective_user.id, update.effective_user.full_name, 'delete_visit', 'visit', int(visit_id), 'حذف زيارة ونهجها بالكامل')
+        # استخدام دالة الحذف الموحدة من database.py
+        success = delete_visit(visit_id)
+        if success:
+            await query.edit_message_text("🗑️ تم حذف الزيارة وجميع بياناتها.")
+            log_action(update.effective_user.id, update.effective_user.full_name, 'delete_visit', 'visit', int(visit_id), 'حذف زيارة ونهجها بالكامل')
+        else:
+            await query.edit_message_text("❌ فشل حذف الزيارة.")
 
     # --- إصدار التقرير ---
     elif data.startswith("export_"):
