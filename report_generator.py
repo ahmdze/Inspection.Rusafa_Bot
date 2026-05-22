@@ -440,7 +440,7 @@ class ReportBuilder:
         safe_name = re.sub(r'[\\/*?:"<>|]', "-", raw_name)
         safe_date = re.sub(r'[\\/|]', "-", raw_date)
 
-        file_name = f"تقرير_{safe_name}_{safe_date}.docx"
+        file_name = f"{safe_name} - {safe_date}.docx"
         self.doc.save(file_name)
         return file_name
 
@@ -468,15 +468,6 @@ def generate_docx_report(visit_id, bot_token=None):
     # تمرير البيانات إلى الكلاس لمنع الاستعلام المزدوج
     builder = ReportBuilder(visit_id, data)
     file_name = builder.build()
-
-    execute_query(
-        """
-        UPDATE Visits
-        SET status = 'مغلقة'
-        WHERE id = ?
-        """,
-        (visit_id,)
-    )
 
     return (
         file_name,

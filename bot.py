@@ -95,6 +95,7 @@ def is_admin(user_id):
 INSTITUTION_NAME, VISIT_DATE, SCHEDULE_DATE = range(3)
 AXIS_NAME, SECTION_NAME, NOTES, NOTE_CONFIRM, REC_DESTINATION, RECOMMENDATIONS, LOOP_OR_END, SUMMARY_CONFIRM = range(10, 18)
 SEARCH_QUERY = 30
+INSTITUTION_SEARCH = 31
 ATTACHMENT_CAPTION = 40
 DRAFT_RESUME = 50
 
@@ -104,7 +105,8 @@ DRAFT_RESUME = 50
 ADMIN_MENU_KB = [
     ["➕ إنشاء زيارة جديدة", "📋 إدارة الزيارات"],
     ["📊 الإحصائيات", "🔍 البحث عن زيارة"],
-    ["🗂 سجل العمليات"]
+    ["🗂 سجل العمليات"],
+    ["المؤسسات الصحية"]
 ]
 BUTTON_START_REPORT = "▶️ ابدأ تقرير جديد"
 BUTTON_RESUME_DRAFT = "⏱ استئناف المسودة"
@@ -179,6 +181,7 @@ GENERAL_INFO_KB = [
     ["عدد الافراد"],
     ["عدد العوائل"],
     ["اكتب اسم القسم يدوياً"],
+    ["🛑 إنهاء الإدخال"],
     [BACK_BUTTON]
 ]
 # ==========================================
@@ -460,6 +463,13 @@ async def get_section_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=ReplyKeyboardMarkup(REPORT_START_KB, one_time_keyboard=True, resize_keyboard=True)
         )
         return AXIS_NAME
+
+    if section_text == "🛑 إنهاء الإدخال":
+        await update.message.reply_text(
+            "✅ تم إنهاء الإدخال.",
+            reply_markup=ReplyKeyboardMarkup(ADMIN_MENU_KB if is_admin(update.effective_user.id) else MEMBER_MENU_KB, resize_keyboard=True)
+        )
+        return ConversationHandler.END
 
     if section_text == "اكتب اسم القسم يدوياً":
         await update.message.reply_text(
@@ -1107,6 +1117,116 @@ async def manage_visits(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await _show_visits_list(update, status=None, order='DESC')
 
 
+@admin_required
+async def manage_institutions(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    institutions = execute_query(
+        "SELECT DISTINCT institution_name FROM Visits ORDER BY institution_name ASC",
+        fetch=True
+    )
+    if not institutions:
+        await update.message.reply_text(
+            "⚠️ لا توجد مؤسسات مسجلة.",
+            reply_markup=ReplyKeyboardMarkup(ADMIN_MENU_KB, resize_keyboard=True)
+        )
+        return ConversationHandler.END
+
+    context.user_data['institution_map'] = {
+        str(idx): row[0]
+        for idx, row in enumerate(institutions, start=1)
+    }
+    keyboard = [
+        [InlineKeyboardButton(row[0], callback_data=f"institution_{idx}")]
+        for idx, row in enumerate(institutions, start=1)
+    ]
+    await update.message.reply_text(
+        "🏥 اختر مؤسسة من القائمة أو اكتب جزءاً من اسم المؤسسة للبحث:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return INSTITUTION_SEARCH
+
+
+async def institution_search_execute(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query_text = update.message.text.strip()
+    if not query_text:
+        return await manage_institutions(update, context)
+
+    query = f"%{query_text}%"
+    institutions = execute_query(
+        "SELECT DISTINCT institution_name FROM Visits WHERE institution_name LIKE ? ORDER BY institution_name ASC",
+        (query,), fetch=True
+    )
+    if not institutions:
+        await update.message.reply_text(
+            "⚠️ لا توجد مؤسسات مطابقة.",
+            reply_markup=ReplyKeyboardMarkup(ADMIN_MENU_KB, resize_keyboard=True)
+        )
+        return ConversationHandler.END
+
+    context.user_data['institution_map'] = {
+        str(idx): row[0]
+        for idx, row in enumerate(institutions, start=1)
+    }
+    keyboard = [
+        [InlineKeyboardButton(row[0], callback_data=f"institution_{idx}")]
+        for idx, row in enumerate(institutions, start=1)
+    ]
+    await update.message.reply_text(
+        f"🔍 نتائج البحث عن: {query_text}",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return INSTITUTION_SEARCH
+
+
+async def _show_institution_visits(query, institution_name, context: ContextTypes.DEFAULT_TYPE):
+    visits = execute_query(
+        "SELECT id, visit_date, status FROM Visits WHERE institution_name = ? ORDER BY visit_date DESC, id DESC",
+        (institution_name,), fetch=True
+    )
+    if not visits:
+        await query.message.reply_text(
+            "⚠️ لا توجد زيارات لهذه المؤسسة.",
+            reply_markup=ReplyKeyboardMarkup(ADMIN_MENU_KB, resize_keyboard=True)
+        )
+        return
+
+    keyboard = [
+        [InlineKeyboardButton(f"{'🟢' if v[2]=='مفتوحة' else '🔴'} {v[1]}", callback_data=f"select_{v[0]}")]
+        for v in visits
+    ]
+    keyboard.insert(0, [InlineKeyboardButton("◀️ العودة للمؤسسات", callback_data="institutions_list")])
+
+    await query.edit_message_text(
+        f"🏥 <b>{institution_name}</b>\n📋 اختر زيارة لعرض الخيارات:",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="HTML"
+    )
+
+
+async def _show_institutions_list(query, context: ContextTypes.DEFAULT_TYPE):
+    institutions = execute_query(
+        "SELECT DISTINCT institution_name FROM Visits ORDER BY institution_name ASC",
+        fetch=True
+    )
+    if not institutions:
+        await query.edit_message_text(
+            "⚠️ لا توجد مؤسسات مسجلة.",
+        )
+        return
+
+    context.user_data['institution_map'] = {
+        str(idx): row[0]
+        for idx, row in enumerate(institutions, start=1)
+    }
+    keyboard = [
+        [InlineKeyboardButton(row[0], callback_data=f"institution_{idx}")]
+        for idx, row in enumerate(institutions, start=1)
+    ]
+    await query.edit_message_text(
+        "🏥 اختر مؤسسة من القائمة أو اكتب جزءاً من اسم المؤسسة للبحث:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+
 async def _show_visits_list(update, status=None, order='DESC'):
     query_conditions = []
     params = []
@@ -1278,12 +1398,12 @@ async def visit_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
 
     # --- عرض تفاصيل زيارة ---
     if data.startswith("select_"):
-        visit_id = data.split("_")[1]
+        visit_id = data.rsplit("_", 1)[-1]
         await _show_visit_menu(query, visit_id)
 
     # --- تصفية الزيارات ---
     elif data.startswith("filter_"):
-        filter_type = data.split("_")[1]
+        filter_type = data.rsplit("_", 1)[-1]
         if filter_type == 'open':
             await _show_visits_list(query, status='open', order='DESC')
         elif filter_type == 'closed':
@@ -1291,13 +1411,24 @@ async def visit_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         else:
             await _show_visits_list(query, status=None, order='DESC')
 
+    elif data.startswith("institution_"):
+        institution_key = data.rsplit("_", 1)[-1]
+        institution_name = context.user_data.get('institution_map', {}).get(institution_key)
+        if not institution_name:
+            await query.answer("⚠️ لا يمكن العثور على المؤسسة. أعد البحث.", show_alert=True)
+            return
+        await _show_institution_visits(query, institution_name, context)
+
+    elif data == "institutions_list":
+        await _show_institutions_list(query, context)
+
     elif data.startswith("sort_"):
         order = 'ASC' if data == 'sort_oldest' else 'DESC'
         await _show_visits_list(query, status=None, order=order)
 
     # --- نسخ الرابط ---
     elif data.startswith("link_"):
-        visit_id = data.split("_")[1]
+        visit_id = data.rsplit("_", 1)[-1]
         await query.message.reply_text(
             f"🔗 <b>رابط الانضمام:</b>\n"
             f"<code>https://t.me/InspectionRusafa_bot?start=join_{visit_id}</code>",
@@ -1306,30 +1437,30 @@ async def visit_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
 
     # --- إغلاق الزيارة ---
     elif data.startswith("close_"):
-        visit_id = data.split("_")[1]
+        visit_id = data.rsplit("_", 1)[-1]
         execute_query("UPDATE Visits SET status = 'مغلقة' WHERE id = ?", (visit_id,))
         await query.edit_message_text("🔒 <b>تم إغلاق الزيارة.</b>", parse_mode="HTML")
         log_action(update.effective_user.id, update.effective_user.full_name, 'close_visit', 'visit', int(visit_id), 'أغلق الزيارة من لوحة الإدارة')
 
     # --- إعادة فتح ---
     elif data.startswith("reopen_"):
-        visit_id = data.split("_")[1]
+        visit_id = data.rsplit("_", 1)[-1]
         execute_query("UPDATE Visits SET status = 'مفتوحة' WHERE id = ?", (visit_id,))
         await query.edit_message_text("🔓 <b>تم إعادة فتح الزيارة!</b>", parse_mode="HTML")
         log_action(update.effective_user.id, update.effective_user.full_name, 'reopen_visit', 'visit', int(visit_id), 'أعاد فتح الزيارة من لوحة الإدارة')
 
     # --- ملخص نصي سريع ---
     elif data.startswith("preview_"):
-        visit_id = data.split("_")[1]
+        visit_id = data.rsplit("_", 1)[-1]
         await _show_text_preview(query, visit_id)
 
     # --- حذف ملاحظة ---
     elif data.startswith("del_reports_"):
-        visit_id = data.split("_")[2]
+        visit_id = data.rsplit("_", 1)[-1]
         await _show_deletable_reports(query, visit_id)
 
     elif data.startswith("delrep_"):
-        report_id = data.split("_")[1]
+        report_id = data.rsplit("_", 1)[-1]
         await query.edit_message_text(
             "هل أنت متأكد من حذف هذه الملاحظة؟",
             reply_markup=InlineKeyboardMarkup([
@@ -1339,7 +1470,7 @@ async def visit_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         )
 
     elif data.startswith("confirm_delrep_"):
-        report_id = data.split("_")[1]
+        report_id = data.rsplit("_", 1)[-1]
         execute_query("DELETE FROM Reports WHERE id = ?", (report_id,))
         await query.edit_message_text("🗑️ تم حذف الملاحظة.")
         log_action(update.effective_user.id, update.effective_user.full_name, 'delete_report', 'report', int(report_id), 'تم حذف ملاحظة من لوحة الإدارة')
@@ -1349,12 +1480,12 @@ async def visit_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
 
     # --- تجميع المرفقات ---
     elif data.startswith("attachments_"):
-        visit_id = data.split("_")[1]
+        visit_id = data.rsplit("_", 1)[-1]
         await _send_attachments_zip(query, visit_id, context)
 
     # --- حذف الزيارة ---
     elif data.startswith("delete_"):
-        visit_id = data.split("_")[1]
+        visit_id = data.rsplit("_", 1)[-1]
         await query.edit_message_text(
             "هل أنت متأكد من حذف هذه الزيارة وجميع بياناتها؟",
             reply_markup=InlineKeyboardMarkup([
@@ -1364,7 +1495,7 @@ async def visit_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         )
 
     elif data.startswith("confirm_delete_"):
-        visit_id = data.split("_")[1]
+        visit_id = data.rsplit("_", 1)[-1]
         execute_query("DELETE FROM Reports WHERE visit_id = ?", (visit_id,))
         execute_query("DELETE FROM Visit_Members WHERE visit_id = ?", (visit_id,))
         execute_query("DELETE FROM Attachments WHERE visit_id = ?", (visit_id,))
@@ -1374,7 +1505,7 @@ async def visit_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
 
     # --- إصدار التقرير ---
     elif data.startswith("export_"):
-        visit_id = data.split("_")[1]
+        visit_id = data.rsplit("_", 1)[-1]
         await query.edit_message_text("🔄 جاري إنشاء التقرير...")
         file_name, inst_name = generate_docx_report(visit_id, bot_token=TOKEN)
         if not file_name:
@@ -1386,8 +1517,8 @@ async def visit_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
             await context.bot.send_document(
                 chat_id=query.message.chat_id,
                 document=f,
-                filename=f"تقرير {inst_name}.docx",
-                caption="✅ تم إصدار التقرير وإغلاق الزيارة."
+                filename=os.path.basename(file_name),
+                caption="✅ تم إصدار التقرير."
             )
         if os.path.exists(file_name):
             os.remove(file_name)
@@ -1639,6 +1770,7 @@ def main():
 
     # --- إدخال التقرير والمرفقات (محادثة) ---
     report_handler = ConversationHandler(
+        allow_reentry=True,
         entry_points=[
             CommandHandler('start', start_and_join),
             MessageHandler(filters.Regex("^➕ إرسال رد آخر$"), start_another_report)
@@ -1663,8 +1795,20 @@ def main():
         fallbacks=[CommandHandler('cancel', cancel)]
     )
 
+    institution_handler = ConversationHandler(
+        entry_points=[
+            MessageHandler(filters.Regex("^المؤسسات الصحية$"), manage_institutions),
+            CommandHandler("institutions", manage_institutions)
+        ],
+        states={
+            INSTITUTION_SEARCH: [MessageHandler(filters.TEXT & ~filters.COMMAND, institution_search_execute)],
+        },
+        fallbacks=[CommandHandler('cancel', cancel)]
+    )
+
     application.add_handler(visit_creator)
     application.add_handler(search_handler)
+    application.add_handler(institution_handler)
     application.add_handler(report_handler)
 
     print("🤖 البوت يعمل بجميع المميزات الجديدة...")
