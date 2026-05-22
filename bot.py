@@ -1067,7 +1067,9 @@ async def get_schedule_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             pass
 
-    link = f"https://t.me/InspectionRusafa_bot?start=join_{visit_id}"
+    # الحصول على URL الخادم من متغيرات البيئة أو استخدام localhost للتطوير
+    WEB_URL = os.getenv('RAILWAY_PUBLIC_DOMAIN', 'http://localhost:8080')
+    link = f"{WEB_URL}/join/{visit_id}/{user.id}"
     await update.message.reply_text(
         f"✅ <b>تم إنشاء الزيارة!</b>\n\n"
         f"🏥 المؤسسة: {inst_name}\n"
@@ -1091,7 +1093,7 @@ async def send_visit_reminder(context: ContextTypes.DEFAULT_TYPE):
                 f"🏥 المؤسسة: {data['inst_name']}\n"
                 f"📅 التاريخ: {data['visit_date']}\n"
                 f"🔗 رابط الزيارة:\n"
-                f"<code>https://t.me/InspectionRusafa_bot?start=join_{data['visit_id']}</code>",
+                f"<code>{WEB_URL}/join/{data['visit_id']}</code>",
                 parse_mode="HTML"
             )
         except Exception:
@@ -1300,7 +1302,7 @@ async def visit_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         visit_id = data.split("_")[1]
         await query.message.reply_text(
             f"🔗 <b>رابط الانضمام:</b>\n"
-            f"<code>https://t.me/InspectionRusafa_bot?start=join_{visit_id}</code>",
+            f"<code>{WEB_URL}/join/{visit_id}</code>",
             parse_mode="HTML"
         )
 
