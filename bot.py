@@ -506,6 +506,9 @@ async def save_member_job_title(update: Update, context: ContextTypes.DEFAULT_TY
         )
         institution_name = visit[0][0] if visit else "الزيارة"
         
+        # تخزين full_name بالصيغة المطلوبة للاستخدام في الإشعارات
+        context.user_data['member_display_full_name'] = f"{job_title} - {full_name}"
+        
         await update.message.reply_text(
             f"✅ تم تسجيل بياناتك بنجاح!\n"
             f"👤 الاسم: {full_name}\n"
@@ -623,7 +626,9 @@ async def get_notes(update: Update, context: ContextTypes.DEFAULT_TYPE):
              context.user_data['current_axis'], context.user_data['current_section'],
              context.user_data['current_notes'], "", "")
         )
-        await _notify_admins_report(context, update.effective_user.full_name,
+        # استخدام full_name بالصيغة المطلوبة (job_title - full_name) إذا كان متاحاً
+        sender_display_name = context.user_data.get('member_display_full_name', update.effective_user.full_name)
+        await _notify_admins_report(context, sender_display_name,
                                     context.user_data['report_visit_id'],
                                     context.user_data['current_axis'],
                                     context.user_data['current_section'])
@@ -775,7 +780,9 @@ async def _save_report_entry(update: Update, context: ContextTypes.DEFAULT_TYPE,
          context.user_data['current_notes'], context.user_data['current_rec_dest'],
          recommendations_text)
     )
-    await _notify_admins_report(context, update.effective_user.full_name,
+    # استخدام full_name بالصيغة المطلوبة (job_title - full_name) إذا كان متاحاً
+    sender_display_name = context.user_data.get('member_display_full_name', update.effective_user.full_name)
+    await _notify_admins_report(context, sender_display_name,
                                 context.user_data['report_visit_id'],
                                 context.user_data['current_axis'],
                                 context.user_data['current_section'])
