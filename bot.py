@@ -7,7 +7,6 @@ import logging
 import hashlib
 import requests
 import calendar
-from telegram.ext import CallbackQueryHandler, ContextTypes
 from datetime import datetime, timedelta
 from functools import wraps
 from telegram import (
