@@ -132,21 +132,15 @@ def create_calendar(year=None, month=None) -> InlineKeyboardMarkup:
 
     keyboard = []
     month_name = calendar.month_name[month]
-    keyboard.append([InlineKeyboardButton(f"{month_name} {year}", callback_data="ignore")])
+    keyboard.append([InlineKeyboardButton(f"📅 {month_name} {year}", callback_data="ignore")])
 
-    week_days = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]
-    keyboard.append([InlineKeyboardButton(day, callback_data="ignore") for day in week_days])
 
-    month_calendar = calendar.monthcalendar(year, month)
-    for week in month_calendar:
-        row = []
-        for day in week:
-            if day == 0:
-                row.append(InlineKeyboardButton(" ", callback_data="ignore"))
-            else:
-                date_str = f"{year}-{month:02d}-{day:02d}"
-                row.append(InlineKeyboardButton(str(day), callback_data=build_callback_data("select_date", date_str)))
-        keyboard.append(row)
+
+    # أزرار تغيير السنة
+    keyboard.append([
+        InlineKeyboardButton(f"⬅️ {year-1}", callback_data=f"year_{year-1}_{month}"),
+        InlineKeyboardButton(f"{year+1} ➡️", callback_data=f"year_{year+1}_{month}")
+    ])
 
     # أزرار التنقل بين الأشهر
     prev_month = month - 1 if month > 1 else 12
@@ -155,9 +149,21 @@ def create_calendar(year=None, month=None) -> InlineKeyboardMarkup:
     next_year = year if month < 12 else year + 1
 
     keyboard.append([
-        InlineKeyboardButton("⬅️ السابق", callback_data=build_callback_data("change_month", f"{prev_year}-{prev_month}")),
-        InlineKeyboardButton("التالي ➡️", callback_data=build_callback_data("change_month", f"{next_year}-{next_month}"))
+        InlineKeyboardButton("⬅️ شهر سابق", callback_data=f"month_{prev_year}_{prev_month}"),
+        InlineKeyboardButton("شهر التالي ➡️", callback_data=f"month_{next_year}_{next_month}")
     ])
+
+    # أيام الشهر
+    month_calendar = calendar.monthcalendar(year, month)
+    for week in month_calendar:
+        row = []
+        for day in week:
+            if day == 0:
+                row.append(InlineKeyboardButton(" ", callback_data="ignore"))
+            else:
+                date_str = f"{year}-{month:02d}-{day:02d}"
+                row.append(InlineKeyboardButton(str(day), callback_data=f"date_{date_str}"))
+        keyboard.append(row)
 
     return InlineKeyboardMarkup(keyboard)
 
@@ -1165,7 +1171,7 @@ async def get_institution_name(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def get_visit_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # نستقبل البيانات من الزر الذي تم الضغط عليه
+    # """معالج اختيار التاريخ من التقويم المبسط"""
     query = update.callback_query
     await query.answer() # لإيقاف دائرة التحميل في زر تيليجرام
     data = query.data
@@ -1173,23 +1179,38 @@ async def get_visit_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 1. إذا ضغط على يوم فارغ أو اسم الشهر (للعرض فقط)
     parts = data.split('|')
     action = parts[0]
-    payload = parts[1] if len(parts) > 1 else None
-
+    
     if action == "ignore":
         return VISIT_DATE
             
-        # 2. إذا ضغط على أزرار التقليب بين الأشهر (السابق / التالي)
-    if action == "change_month":
-        year, month = map(int, payload.split('-'))
+        # تغيير السنة
+    if action == "year":
+        year = int(parts[1])
+        month = int(parts[2])
         reply_markup = create_calendar(year, month)
         await query.edit_message_reply_markup(reply_markup=reply_markup)
-        logger.info(f"👉 تم تحديث التقويم إلى {year}-{month:02d}")
+        logger.info(f"👉 تم تغيير السنة إلى {year}")
         return VISIT_DATE
-        
-    if action == "select_date":
-        context.user_data['visit_date'] = payload
-        await query.edit_message_text(text=f"✅ تم اختيار تاريخ الزيارة: {payload}")
-        logger.info(f"👉 تم اختيار تاريخ الزيارة: {payload}")
+
+            # تغيير الشهر
+    if action == "month":
+        year = int(parts[1])
+        month = int(parts[2])
+        reply_markup = create_calendar(year, month)
+        await query.edit_message_reply_markup(reply_markup=reply_markup)
+        logger.info(f"👉 تم تغيير الشهر إلى {year}-{month:02d}")
+        return VISIT_DATE
+
+            # اختيار يوم
+    if action == "day":
+        year = int(parts[1])
+        month = int(parts[2])
+        day = int(parts[3])
+        date_str = f"{year}-{month:02d}-{day:02d}"
+        context.user_data['visit_date'] = date_str
+
+        await query.edit_message_text(text=f"✅ تم اختيار تاريخ الزيارة: {date_str}")
+        logger.info(f"👉 تم اختيار تاريخ الزيارة: {date_str}")
 
         await query.message.reply_text("الرجاء إدخال نوع الزيارة:")
             
@@ -1199,7 +1220,7 @@ async def get_visit_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=ReplyKeyboardMarkup(kb, one_time_keyboard=True, resize_keyboard=True),
             parse_mode="HTML"
         )
-        logging.info(f"✅ تم اختيار التاريخ ({payload}) والانتقال للخطوة التالية بنجاح.")
+        logging.info(f"✅ تم اختيار التاريخ ({date_str}) والانتقال للخطوة التالية بنجاح.")
         return VISIT_TYPE
         
     return VISIT_DATE
@@ -1971,7 +1992,7 @@ def main():
         ],
         states={
             INSTITUTION_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_institution_name)],
-            VISIT_DATE:       [CallbackQueryHandler(get_visit_date, pattern="^(change_month|select_date|ignore)$")],
+            VISIT_DATE:       [CallbackQueryHandler(get_visit_date, pattern="^(year|month|day|ignore)_")],
             VISIT_TYPE:       [MessageHandler(filters.TEXT & ~filters.COMMAND, get_visit_type)],
             SCHEDULE_DATE:    [MessageHandler(filters.TEXT & ~filters.COMMAND, get_schedule_date)],
         },
