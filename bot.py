@@ -1974,6 +1974,7 @@ def main():
     _schedule_pending_reminders(application)
 
     # --- معالج الـ Callback ---
+    application.add_handler(visit_creator)
     application.add_handler(CallbackQueryHandler(visit_callback_handler))
     application.add_error_handler(error_handler)
 
@@ -1992,7 +1993,7 @@ def main():
         ],
         states={
             INSTITUTION_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_institution_name)],
-            VISIT_DATE:       [CallbackQueryHandler(get_visit_date)],
+            VISIT_DATE:       [CallbackQueryHandler(get_visit_date, pattern="^(IGNORE|PREV:|NEXT:|DATE:)")],
             VISIT_TYPE:       [MessageHandler(filters.TEXT & ~filters.COMMAND, get_visit_type)],
             SCHEDULE_DATE:    [MessageHandler(filters.TEXT & ~filters.COMMAND, get_schedule_date)],
         },
@@ -2053,7 +2054,6 @@ def main():
         fallbacks=[CommandHandler('cancel', cancel)]
     )
 
-    application.add_handler(visit_creator)
     application.add_handler(search_handler)
     application.add_handler(institution_handler)
     application.add_handler(report_handler)
