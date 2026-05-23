@@ -359,6 +359,13 @@ def run_migrations(conn):
          "ALTER TABLE Visit_Members ADD COLUMN full_name TEXT"),
     ]
     
+    # إضافة هجرة خاصة لإزالة القيد الفريد في PostgreSQL فقط
+    if USE_POSTGRES:
+        migrations.append(
+            ('remove_unique_constraint_visit_members',
+             "ALTER TABLE Visit_Members DROP CONSTRAINT IF EXISTS visit_members_visit_id_user_id_key")
+        )
+    
     for migration_name, sql in migrations:
         # تخطي الهجرات الخاصة بـ PostgreSQL فقط عند استخدام SQLite
         if sql is None and not USE_POSTGRES:
