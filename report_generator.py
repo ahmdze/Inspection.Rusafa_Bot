@@ -216,13 +216,12 @@ def load_visit_data(visit_id):
         """
         SELECT 
             CASE 
-                WHEN full_name IS NOT NULL THEN full_name
                 WHEN job_title IS NOT NULL AND user_name IS NOT NULL THEN job_title || ' - ' || user_name
-                WHEN job_title IS NOT NULL THEN job_title
+                WHEN job_title IS NOT NULL AND full_name IS NOT NULL THEN job_title || ' - ' || full_name
+                WHEN full_name IS NOT NULL THEN full_name
                 WHEN user_name IS NOT NULL THEN user_name
-                ELSE COALESCE(user_name, 'غير معروف')
-            END as display_name,
-            job_title
+                ELSE 'غير معروف'
+            END as display_name
         FROM Visit_Members
         WHERE visit_id = %s
         ORDER BY display_name ASC
@@ -430,9 +429,9 @@ class ReportBuilder:
             add_text(self.doc, "لا توجد بيانات أعضاء.")
             return
 
-        for idx, member in enumerate(members, start=1):
-            # member is now a tuple (display_name, job_title) where display_name already contains "job_title - full_name"
-            display_name = member[0] if len(member) > 0 else "غير معروف"
+        for idx, member_name in enumerate(members, start=1):
+            # المتغير member_name هو نص جاهز الآن، ولا نحتاج لأخذ الـ index [0] منه
+            display_name = member_name if member_name else "غير معروف"
             
             add_bullet(self.doc, f"{idx}- {display_name}")
 
