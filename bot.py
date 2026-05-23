@@ -138,8 +138,8 @@ def create_calendar(year=None, month=None) -> InlineKeyboardMarkup:
 
     # أزرار تغيير السنة
     keyboard.append([
-        InlineKeyboardButton(f"⬅️ {year-1}", callback_data=f"year_{year-1}_{month}"),
-        InlineKeyboardButton(f"{year+1} ➡️", callback_data=f"year_{year+1}_{month}")
+        InlineKeyboardButton(f"⬅️ {year-1}", callback_data=f"year|{year-1}|{month}"),
+        InlineKeyboardButton(f"{year+1} ➡️", callback_data=f"year|{year+1}|{month}")
     ])
 
     # أزرار التنقل بين الأشهر
@@ -149,8 +149,8 @@ def create_calendar(year=None, month=None) -> InlineKeyboardMarkup:
     next_year = year if month < 12 else year + 1
 
     keyboard.append([
-        InlineKeyboardButton("⬅️ شهر سابق", callback_data=f"month_{prev_year}_{prev_month}"),
-        InlineKeyboardButton("شهر التالي ➡️", callback_data=f"month_{next_year}_{next_month}")
+        InlineKeyboardButton("⬅️ شهر سابق", callback_data=f"month|{prev_year}|{prev_month}"),
+        InlineKeyboardButton("شهر التالي ➡️", callback_data=f"month|{next_year}|{next_month}")
     ])
 
     # أيام الشهر
@@ -1176,7 +1176,8 @@ async def get_visit_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer() # لإيقاف دائرة التحميل في زر تيليجرام
     data = query.data
     logger.info(f"👉 تم استلام ضغطة زر من التقويم، البيانات: {data}")
-    # 1. إذا ضغط على يوم فارغ أو اسم الشهر (للعرض فقط)
+    
+    # استخدام split('|') لتحليل البيانات بشكل صحيح
     parts = data.split('|')
     action = parts[0]
     
@@ -1202,11 +1203,8 @@ async def get_visit_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return VISIT_DATE
 
             # اختيار يوم
-    if action == "day":
-        year = int(parts[1])
-        month = int(parts[2])
-        day = int(parts[3])
-        date_str = f"{year}-{month:02d}-{day:02d}"
+    if action == "date":
+        date_str = parts[1]  # التاريخ مباشرة بصيغة YYYY-MM-DD
         context.user_data['visit_date'] = date_str
 
         await query.edit_message_text(text=f"✅ تم اختيار تاريخ الزيارة: {date_str}")
@@ -1992,7 +1990,7 @@ def main():
         ],
         states={
             INSTITUTION_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_institution_name)],
-            VISIT_DATE:       [CallbackQueryHandler(get_visit_date, pattern="^(year|month|day|ignore)_")],
+            VISIT_DATE:       [CallbackQueryHandler(get_visit_date, pattern="^(year|month|date|ignore)\|")],
             VISIT_TYPE:       [MessageHandler(filters.TEXT & ~filters.COMMAND, get_visit_type)],
             SCHEDULE_DATE:    [MessageHandler(filters.TEXT & ~filters.COMMAND, get_schedule_date)],
         },
