@@ -124,11 +124,11 @@ def is_valid_text(value, max_length=200):
     text = sanitize_text(value, max_length)
     return bool(text)
 
-def create_calendar(year= int, month= int)-> InlineKeyboardMarkup:
+def create_calendar(year=None, month=None) -> InlineKeyboardMarkup:
     """إنشاء لوحة مفاتيح تقويم لاختيار تاريخ"""
     now = datetime.now()
-    year = year or now.year
-    month = month or now.month
+    year = year if year is not None else now.year
+    month = month if month is not None else now.month
 
     keyboard = []
     month_name = calendar.month_name[month]
