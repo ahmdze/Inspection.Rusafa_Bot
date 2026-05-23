@@ -1,3 +1,4 @@
+from email.mime import application
 import os
 import io
 import json
@@ -1171,44 +1172,38 @@ async def get_visit_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
     logger.info(f"👉 تم استلام ضغطة زر من التقويم، البيانات: {data}")
     # 1. إذا ضغط على يوم فارغ أو اسم الشهر (للعرض فقط)
-    try:
-        action, payload = parse_calendar_data(data)
+    parts = data.split('|')
+    action = parts[0]
+    payload = parts[1] if len(parts) > 1 else None
 
-        if action == "IGNORE":
-            return VISIT_DATE
+    if action == "IGNORE":
+        return VISIT_DATE
             
         # 2. إذا ضغط على أزرار التقليب بين الأشهر (السابق / التالي)
-        if action == "CHANGE_MONTH":
-            year_str, month_str = payload.split("-")
-            year = int(year_str)
-            month = int(month_str)
-
-            reply_markup = create_calendar(year, month)
-            await query.edit_message_reply_markup(reply_markup=reply_markup)
-            logger.info(f"👉 تم تحديث التقويم إلى {year}-{month:02d}")
-            return VISIT_DATE
-        
-        if action == "SELECT_DATE":
-            selected_date = payload
-            context.user_data['visit_date'] = selected_date
-            
-            await query.edit_message_text(text=f"✅ تم اختيار تاريخ الزيارة: {selected_date}")
-            logger.info(f"👉 تم اختيار تاريخ الزيارة: {selected_date}")
-
-            await query.message.reply_text("الرجاء إدخال نوع الزيارة:")
-            
-            kb = [["تفتيشية"], ["متابعة"], ["متابعة تنفيذ توصيات"]]
-            await update.message.reply_text(
-                "📋 اختر <b>نوع الزيارة</b>:",
-                reply_markup=ReplyKeyboardMarkup(kb, one_time_keyboard=True, resize_keyboard=True),
-                parse_mode="HTML"
-            )
-            logging.info(f"✅ تم اختيار التاريخ ({selected_date}) والانتقال للخطوة التالية بنجاح.")
-            return VISIT_TYPE
-        
-    except Exception as e:
-        logging.error(f"❌ حدث خطأ صامت أثناء معالجة التقويم: {e}")
+    if action == "CHANGE_MONTH":
+        year, month = map(int, payload.split('-'))
+        reply_markup = create_calendar(year, month)
+        await query.edit_message_reply_markup(reply_markup=reply_markup)
+        logger.info(f"👉 تم تحديث التقويم إلى {year}-{month:02d}")
         return VISIT_DATE
+        
+    if action == "SELECT_DATE":
+        context.user_data['visit_date'] = payload
+        await query.edit_message_text(text=f"✅ تم اختيار تاريخ الزيارة: {payload}")
+        logger.info(f"👉 تم اختيار تاريخ الزيارة: {payload}")
+
+        await query.message.reply_text("الرجاء إدخال نوع الزيارة:")
+            
+        kb = [["تفتيشية"], ["متابعة"], ["متابعة تنفيذ توصيات"]]
+        await update.message.reply_text(
+            "📋 اختر <b>نوع الزيارة</b>:",
+            reply_markup=ReplyKeyboardMarkup(kb, one_time_keyboard=True, resize_keyboard=True),
+            parse_mode="HTML"
+        )
+        logging.info(f"✅ تم اختيار التاريخ ({payload}) والانتقال للخطوة التالية بنجاح.")
+        return VISIT_TYPE
+        
+    return VISIT_DATE
 
 async def get_visit_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
     visit_type = update.message.text.strip()
@@ -1977,7 +1972,7 @@ def main():
         ],
         states={
             INSTITUTION_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_institution_name)],
-            VISIT_DATE:       [CallbackQueryHandler(get_visit_date, pattern="^(ignore|change_month|select_date)")],
+            VISIT_DATE:       [CallbackQueryHandler(get_visit_date, pattern="^(change_month|select_date|ignore)")],
             VISIT_TYPE:       [MessageHandler(filters.TEXT & ~filters.COMMAND, get_visit_type)],
             SCHEDULE_DATE:    [MessageHandler(filters.TEXT & ~filters.COMMAND, get_schedule_date)],
         },
@@ -2043,8 +2038,7 @@ def main():
     application.add_handler(report_handler)
 
     print("🤖 البوت يعمل بجميع المميزات الجديدة...")
-    application.run_polling()
-
+    application.run_polling(drop_pending_updates=True) 
 
 if __name__ == '__main__':
     main()
