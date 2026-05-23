@@ -468,6 +468,9 @@ async def save_member_job_title(update: Update, context: ContextTypes.DEFAULT_TY
     
     # إضافة العضو إلى قاعدة البيانات مع الاسم والعنوان الوظيفي
     try:
+        # السماح بتسجيلات متعددة لنفس المستخدم في نفس الزيارة بأسماء مختلفة
+        # نستخدم ON CONFLICT DO UPDATE على اساس id (اذا تم تمريره) او نقوم بادراج جديد دائماً
+        # بما اننا ازلنا القيد UNIQUE(visit_id, user_id)، يمكن الآن ادراج سجلات متعددة
         execute_query(
             """INSERT INTO Visit_Members (visit_id, user_id, user_name, full_name, job_title)
                VALUES (?, ?, ?, ?, ?)""",

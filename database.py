@@ -91,8 +91,7 @@ def init_db():
                     full_name TEXT,
                     job_title TEXT,
                     joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (visit_id) REFERENCES Visits (id) ON DELETE CASCADE,
-                    UNIQUE(visit_id, user_id)
+                    FOREIGN KEY (visit_id) REFERENCES Visits (id) ON DELETE CASCADE
                 )
             ''')
             
@@ -211,8 +210,7 @@ def init_db():
                     full_name TEXT,
                     job_title TEXT,
                     joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (visit_id) REFERENCES Visits (id) ON DELETE CASCADE,
-                    UNIQUE(visit_id, user_id)
+                    FOREIGN KEY (visit_id) REFERENCES Visits (id) ON DELETE CASCADE
                 )
             ''')
             
@@ -354,16 +352,7 @@ def run_migrations(conn):
         ('add_created_at_to_visits',
          "ALTER TABLE Visits ADD COLUMN created_at TIMESTAMP"),
         ('fix_user_id_types_to_bigint',
-         """DO $$ BEGIN
-            ALTER TABLE Visits ALTER COLUMN manager_id SET DATA TYPE BIGINT;
-            ALTER TABLE Visits ALTER COLUMN leader_id SET DATA TYPE BIGINT;
-            ALTER TABLE Visit_Members ALTER COLUMN user_id SET DATA TYPE BIGINT;
-            ALTER TABLE Reports ALTER COLUMN user_id SET DATA TYPE BIGINT;
-            ALTER TABLE Attachments ALTER COLUMN user_id SET DATA TYPE BIGINT;
-            ALTER TABLE Drafts ALTER COLUMN user_id SET DATA TYPE BIGINT;
-            ALTER TABLE Audit_Log ALTER COLUMN user_id SET DATA TYPE BIGINT;
-            ALTER TABLE User_Sessions ALTER COLUMN user_id SET DATA TYPE BIGINT;
-        EXCEPTION WHEN OTHERS THEN NULL; END $$"""),
+         None),  # PostgreSQL-only migration, skipped for SQLite
         ('add_job_title_to_visit_members',
          "ALTER TABLE Visit_Members ADD COLUMN job_title TEXT"),
         ('add_full_name_to_visit_members',
@@ -371,6 +360,11 @@ def run_migrations(conn):
     ]
     
     for migration_name, sql in migrations:
+        # تخطي الهجرات الخاصة بـ PostgreSQL فقط عند استخدام SQLite
+        if sql is None and not USE_POSTGRES:
+            logger.info(f"⏭️ Skipping PostgreSQL-only migration: {migration_name}")
+            continue
+            
         # التحقق مما إذا كانت الهجرة قد طُبقت مسبقاً
         try:
             if USE_POSTGRES:
