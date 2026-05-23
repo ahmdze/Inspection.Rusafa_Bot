@@ -1175,18 +1175,18 @@ async def get_visit_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
     action = parts[0]
     payload = parts[1] if len(parts) > 1 else None
 
-    if action == "IGNORE":
+    if action == "ignore":
         return VISIT_DATE
             
         # 2. إذا ضغط على أزرار التقليب بين الأشهر (السابق / التالي)
-    if action == "CHANGE_MONTH":
+    if action == "change_month":
         year, month = map(int, payload.split('-'))
         reply_markup = create_calendar(year, month)
         await query.edit_message_reply_markup(reply_markup=reply_markup)
         logger.info(f"👉 تم تحديث التقويم إلى {year}-{month:02d}")
         return VISIT_DATE
         
-    if action == "SELECT_DATE":
+    if action == "select_date":
         context.user_data['visit_date'] = payload
         await query.edit_message_text(text=f"✅ تم اختيار تاريخ الزيارة: {payload}")
         logger.info(f"👉 تم اختيار تاريخ الزيارة: {payload}")

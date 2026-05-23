@@ -442,13 +442,16 @@ class ReportBuilder:
 
     def save(self):
         raw_name = str(self.data["institution_name"])
+        raw_type = str(self.data["visit_type"])
         raw_date = str(self.data["visit_date"])
+
 
         # تنظيف الأسماء من أي رموز قد تسبب مشاكل في نظام التشغيل (OS)
         safe_name = re.sub(r'[\\/*?:"<>|]', "-", raw_name)
+        safe_type = re.sub(r'[\\/*?:"<>|]', "-", raw_type)
         safe_date = re.sub(r'[\\/|]', "-", raw_date)
 
-        file_name = f"{safe_name} - {safe_date}.docx"
+        file_name = f"{safe_name} - {safe_type} - {safe_date}.docx"
         self.doc.save(file_name)
         return file_name
 
