@@ -7,4 +7,12 @@ __pycache__/
 
 # Logs
 *.log
+
+# Database
+inspection_db.sqlite
+
+# Environment
+.env
+.env.local
+*.env.*
 ```
