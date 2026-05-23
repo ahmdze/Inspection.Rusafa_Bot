@@ -342,27 +342,6 @@ def run_migrations(conn):
     conn.commit()
     
     # قائمة الهجرات
-    migrations = [
-        ('add_rec_destination_to_reports', 
-         "ALTER TABLE Reports ADD COLUMN rec_destination TEXT"),
-        ('add_scheduled_date_to_visits',
-         "ALTER TABLE Visits ADD COLUMN scheduled_date TEXT DEFAULT NULL"),
-        ('add_reminder_sent_to_visits',
-         "ALTER TABLE Visits ADD COLUMN reminder_sent INTEGER DEFAULT 0"),
-        ('add_closed_at_to_visits',
-         "ALTER TABLE Visits ADD COLUMN closed_at TIMESTAMP"),
-        ('add_created_at_to_visits',
-         "ALTER TABLE Visits ADD COLUMN created_at TIMESTAMP"),
-        ('add_visit_type_to_visits',
-         "ALTER TABLE Visits ADD COLUMN visit_type TEXT DEFAULT 'تفتيشية'"),
-        ('fix_user_id_types_to_bigint',
-         None),  # PostgreSQL-only migration, skipped for SQLite
-        ('add_job_title_to_visit_members',
-         "ALTER TABLE Visit_Members ADD COLUMN job_title TEXT"),
-        ('add_full_name_to_visit_members',
-         "ALTER TABLE Visit_Members ADD COLUMN full_name TEXT"),
-    ]
-    
     # إضافة هجرة خاصة لإزالة القيد الفريد في PostgreSQL فقط
     if USE_POSTGRES:
         migrations.append(
