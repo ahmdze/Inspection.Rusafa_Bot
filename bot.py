@@ -1154,13 +1154,53 @@ async def get_institution_name(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def get_visit_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.strip()
-    try:
-        visit_dt = datetime.strptime(text, "%Y-%m-%d")
-        context.user_data['visit_date'] = visit_dt.strftime("%Y-%m-%d")
-    except ValueError:
-        await update.message.reply_text("⚠️ صيغة التاريخ غير صحيحة. أرسل التاريخ بصيغة YYYY-MM-DD:")
+    # نستقبل البيانات من الزر الذي تم الضغط عليه
+    query = update.callback_query
+    await query.answer() # لإيقاف دائرة التحميل في زر تيليجرام
+    
+    data = query.data
+
+    # 1. إذا ضغط على يوم فارغ أو اسم الشهر (للعرض فقط)
+    if data == "IGNORE":
         return VISIT_DATE
+        
+    # 2. إذا ضغط على أزرار التقليب بين الأشهر (السابق / التالي)
+    if data.startswith("PREV:") or data.startswith("NEXT:"):
+        _, year, month = data.split(":")
+        year, month = int(year), int(month)
+        
+        if data.startswith("PREV:"):
+            month -= 1
+            if month == 0:
+                month = 12
+                year -= 1
+        else:
+            month += 1
+            if month == 13:
+                month = 1
+                year += 1
+                
+        # تحديث التقويم للشهر الجديد
+        reply_markup = create_calendar(year, month)
+        await query.edit_message_reply_markup(reply_markup=reply_markup)
+        return VISIT_DATE
+        
+    # 3. إذا ضغط على تاريخ محدد
+    if data.startswith("DATE:"):
+        # استخراج التاريخ من الزر (مثال: من "DATE:2025-06-01" نأخذ "2025-06-01")
+        selected_date = data.split(":")[1]
+        
+        # حفظ التاريخ في بيانات المستخدم (نفس ما كنت تفعله في الكود القديم)
+        context.user_data['visit_date'] = selected_date
+        
+        # تعديل رسالة التقويم لإخبار المستخدم بأنه تم اختيار التاريخ بنجاح
+        await query.edit_message_text(text=f"✅ تم اختيار تاريخ الزيارة: {selected_date}")
+        
+        # --- هنا ضع رسالتك للسؤال التالي ---
+        await query.message.reply_text("الرجاء إدخال نوع الزيارة:")
+        
+        # --- هنا ضع الحالة (State) التالية ---
+        return VISIT_DATE # استبدل NEXT_STATE باسم الحالة التالية في الكود الخاص بك
 
     # عرض خيارات نوع الزيارة
     kb = [["تفتيشية"], ["متابعة"], ["متابعة تنفيذ توصيات"]]
