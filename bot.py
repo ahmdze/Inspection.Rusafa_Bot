@@ -430,19 +430,34 @@ async def start_and_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def start_another_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     visit = execute_query(
-        """SELECT V.id, V.institution_name
-           FROM Visits V JOIN Visit_Members M ON V.id = M.visit_id
-           WHERE M.user_id = ? AND V.status = 'مفتوحة'
-           ORDER BY V.id DESC LIMIT 1""",
-        (user_id,), fetch=True
+        """SELECT id, institution_name FROM Visits 
+           WHERE status = 'مفتوحة'
+           ORDER BY id DESC LIMIT 1""",
+        fetch=True
     )
 
     if not visit:
-        await update.message.reply_text("⚠️ لست منضماً لأي زيارة مفتوحة حالياً.")
+        await update.message.reply_text(
+            "⚠️ لا توجد زيارات مفتوحة حالياً. تواصل مع المدير.",
+            reply_markup=ReplyKeyboardMarkup(MEMBER_MENU_KB, resize_keyboard=True)
+        )
         return ConversationHandler.END
 
     visit_id, institution_name = visit[0]
     context.user_data['report_visit_id'] = visit_id
+        # مسح البيانات القديمة للبدء من جديد
+    context.user_data.pop('member_user_name', None)
+    context.user_data.pop('member_display_full_name', None)
+    context.user_data.pop('pending_draft', None)
+
+    await update.message.reply_text(
+        f"✅ تم فتح زيارة: <b>{institution_name}</b>\n\n"
+        "📝 <b>الرجاء إدخال اسمك الثلاثي كما يظهر في الهوية الوظيفية:</b>",
+        reply_markup=ReplyKeyboardRemove(),
+        parse_mode="HTML"
+    )
+    return ENTER_MEMBER_NAME
+    
     draft = load_draft(user_id, visit_id)
     if draft:
         context.user_data['pending_draft'] = draft
@@ -463,6 +478,7 @@ async def start_another_report(update: Update, context: ContextTypes.DEFAULT_TYP
         parse_mode="HTML"
     )
     return AXIS_NAME
+
 
 # ==========================================
 # 2. حفظ اسم العضو والعنوان الوظيفي
@@ -1974,7 +1990,8 @@ def main():
         allow_reentry=True,
         entry_points=[
             CommandHandler('start', start_and_join),
-            MessageHandler(filters.Regex("^➕ إرسال رد آخر$"), start_another_report)
+            MessageHandler(filters.Regex("^▶️ ابدأ تقرير جديد$"), start_another_report),  # ← غيّر النص
+            MessageHandler(filters.Regex("^⏱ استئناف المسودة$"), resume_saved_draft),
         ],
         states={
             ENTER_MEMBER_NAME:   [MessageHandler(filters.TEXT & ~filters.COMMAND, save_member_name)],
