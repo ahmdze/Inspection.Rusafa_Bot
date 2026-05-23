@@ -126,7 +126,7 @@ def is_valid_text(value, max_length=200):
 # ==========================================
 # حالات المحادثة
 # ==========================================
-INSTITUTION_NAME, VISIT_DATE, SCHEDULE_DATE = range(3)
+INSTITUTION_NAME, VISIT_DATE, VISIT_TYPE, SCHEDULE_DATE = range(4)
 ENTER_MEMBER_NAME, ENTER_JOB_TITLE, AXIS_NAME, SECTION_NAME, NOTES, NOTE_CONFIRM, REC_DESTINATION, RECOMMENDATIONS, LOOP_OR_END, SUMMARY_CONFIRM = range(10)
 SEARCH_QUERY = 30
 INSTITUTION_SEARCH = 31
@@ -1124,10 +1124,29 @@ async def get_visit_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ صيغة التاريخ غير صحيحة. أرسل التاريخ بصيغة YYYY-MM-DD:")
         return VISIT_DATE
 
+    # عرض خيارات نوع الزيارة
+    kb = [["تفتيشية"], ["متابعة"]]
+    await update.message.reply_text(
+        "📋 اختر <b>نوع الزيارة</b>:",
+        reply_markup=ReplyKeyboardMarkup(kb, one_time_keyboard=True, resize_keyboard=True),
+        parse_mode="HTML"
+    )
+    return VISIT_TYPE
+
+
+async def get_visit_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    visit_type = update.message.text.strip()
+    if visit_type not in ["تفتيشية", "متابعة"]:
+        await update.message.reply_text("⚠️ الرجاء اختيار نوع زيارة صحيح من القائمة:")
+        return VISIT_TYPE
+    
+    context.user_data['visit_type'] = visit_type
+    
     await update.message.reply_text(
         "⏰ هل تريد جدولة تذكير لهذه الزيارة؟\n"
         "أرسل تاريخ ووقت التذكير بصيغة YYYY-MM-DD HH:MM (مثال: 2025-06-01 08:00)\n"
         "أو أرسل (لا) للتخطي:",
+        reply_markup=ReplyKeyboardRemove()
     )
     return SCHEDULE_DATE
 
@@ -1150,13 +1169,14 @@ async def get_schedule_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     with get_connection() as conn:
         cursor = conn.cursor()
+        visit_type = context.user_data.get('visit_type', 'تفتيشية')
         if USE_POSTGRES:
-            query = "INSERT INTO Visits (institution_name, visit_date, manager_id, status, scheduled_date) VALUES (%s, %s, %s, 'مفتوحة', %s) RETURNING id"
-            cursor.execute(query, (inst_name, visit_date, update.effective_user.id, scheduled_date))
+            query = "INSERT INTO Visits (institution_name, visit_date, visit_type, manager_id, status, scheduled_date) VALUES (%s, %s, %s, %s, 'مفتوحة', %s) RETURNING id"
+            cursor.execute(query, (inst_name, visit_date, visit_type, update.effective_user.id, scheduled_date))
             visit_id = cursor.fetchone()[0]
         else:
-            query = "INSERT INTO Visits (institution_name, visit_date, manager_id, status, scheduled_date) VALUES (?, ?, ?, 'مفتوحة', ?)"
-            cursor.execute(query, (inst_name, visit_date, update.effective_user.id, scheduled_date))
+            query = "INSERT INTO Visits (institution_name, visit_date, visit_type, manager_id, status, scheduled_date) VALUES (?, ?, ?, ?, 'مفتوحة', ?)"
+            cursor.execute(query, (inst_name, visit_date, visit_type, update.effective_user.id, scheduled_date))
             visit_id = cursor.lastrowid
 
     if scheduled_date:
@@ -1179,6 +1199,7 @@ async def get_schedule_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"✅ <b>تم إنشاء الزيارة!</b>\n\n"
         f"🏥 المؤسسة: {inst_name}\n"
         f"📅 التاريخ: {visit_date}\n"
+        f"📋 النوع: {visit_type}\n"
         f"{'⏰ تذكير مجدول: ' + scheduled_date if scheduled_date else ''}\n\n"
         f"🔗 <b>رابط الانضمام:</b>\n<code>{link}</code>",
         reply_markup=ReplyKeyboardMarkup(ADMIN_MENU_KB, resize_keyboard=True),
@@ -1881,6 +1902,7 @@ def main():
         states={
             INSTITUTION_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_institution_name)],
             VISIT_DATE:       [MessageHandler(filters.TEXT & ~filters.COMMAND, get_visit_date)],
+            VISIT_TYPE:       [MessageHandler(filters.TEXT & ~filters.COMMAND, get_visit_type)],
             SCHEDULE_DATE:    [MessageHandler(filters.TEXT & ~filters.COMMAND, get_schedule_date)],
         },
         fallbacks=[CommandHandler('cancel', cancel)]

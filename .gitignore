@@ -1,12 +1,1 @@
-```
-# Compiled and build artifacts
-*.pyc
-__pycache__/
-
-# Logs and temp files
-*.log
-bot.log
-
-# Environment
-.env
-```
+Nothing should be ignored based on the provided file changes. The modified files ('bot.py', 'database.py') are source code files that should not be added to .gitignore. Since there are no build artifacts, dependencies, or temporary files in the changes, no additional ignore rules are needed.
