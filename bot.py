@@ -1148,8 +1148,19 @@ async def create_visit_start(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def get_institution_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['inst_name'] = update.message.text.strip()
-    await update.message.reply_text("📅 أرسل تاريخ الزيارة بصيغة YYYY-MM-DD (مثال: 2025-06-01):")
+    if update.callback_query:
+        await update.callback_query.answer()
+        msg = update.callback_query.message
+    else:
+        msg = update.message
+
+    if update.message and update.message.text:
+        context.user_data['inst_name'] = update.message.text.strip()
+    
+    now = datetime.now()
+    reply_markup = create_calendar(now.year, now.month)
+
+    await msg.reply_text("📅 اختر تاريخ الزيارة من التقويم", reply_markup=reply_markup)
     return VISIT_DATE
 
 
@@ -1199,9 +1210,6 @@ async def get_visit_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # --- هنا ضع رسالتك للسؤال التالي ---
         await query.message.reply_text("الرجاء إدخال نوع الزيارة:")
         
-        # --- هنا ضع الحالة (State) التالية ---
-        return VISIT_DATE # استبدل NEXT_STATE باسم الحالة التالية في الكود الخاص بك
-
     # عرض خيارات نوع الزيارة
     kb = [["تفتيشية"], ["متابعة"], ["متابعة تنفيذ توصيات"]]
     await update.message.reply_text(
