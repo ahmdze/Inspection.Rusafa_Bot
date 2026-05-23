@@ -2040,6 +2040,7 @@ def main():
     application.add_handler(CommandHandler("audit", show_audit_log))
     application.add_handler(MessageHandler(filters.Regex("^🗂 سجل العمليات$"), show_audit_log))
     application.add_handler(CommandHandler('help', show_help))
+    application.add_handler(MessageHandler(filters.Regex("^❓ مساعدة$"), show_help))  # ← أضف هذا
 
 
 
