@@ -1172,55 +1172,40 @@ async def get_visit_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"👉 تم استلام ضغطة زر من التقويم، البيانات: {data}")
     # 1. إذا ضغط على يوم فارغ أو اسم الشهر (للعرض فقط)
     try:
-        if data == "IGNORE":
+        action, payload = parse_calendar_data(data)
+
+        if action == "IGNORE":
             return VISIT_DATE
             
         # 2. إذا ضغط على أزرار التقليب بين الأشهر (السابق / التالي)
-        if data.startswith("PREV:") or data.startswith("NEXT:"):
-            _, year, month = data.split(":")
-            year, month = int(year), int(month)
-            
-            if data.startswith("PREV:"):
-                month -= 1
-                if month == 0:
-                    month = 12
-                    year -= 1
-            else:
-                month += 1
-                if month == 13:
-                    month = 1
-                    year += 1
-                    
-            # تحديث التقويم للشهر الجديد
+        if action == "CHANGE_MONTH":
+            year_str, month_str = payload.split("-")
+            year = int(year_str)
+            month = int(month_str)
+
             reply_markup = create_calendar(year, month)
             await query.edit_message_reply_markup(reply_markup=reply_markup)
             logger.info(f"👉 تم تحديث التقويم إلى {year}-{month:02d}")
             return VISIT_DATE
-            
-        # 3. إذا ضغط على تاريخ محدد
-        if data.startswith("DATE:"):
-            # استخراج التاريخ من الزر (مثال: من "DATE:2025-06-01" نأخذ "2025-06-01")
-            selected_date = data.split(":")[1]
-            
-            # حفظ التاريخ في بيانات المستخدم (نفس ما كنت تفعله في الكود القديم)
+        
+        if action == "SELECT_DATE":
+            selected_date = payload
             context.user_data['visit_date'] = selected_date
             
-            # تعديل رسالة التقويم لإخبار المستخدم بأنه تم اختيار التاريخ بنجاح
             await query.edit_message_text(text=f"✅ تم اختيار تاريخ الزيارة: {selected_date}")
             logger.info(f"👉 تم اختيار تاريخ الزيارة: {selected_date}")
 
-            # --- هنا ضع رسالتك للسؤال التالي ---
             await query.message.reply_text("الرجاء إدخال نوع الزيارة:")
             
-        # عرض خيارات نوع الزيارة
-        kb = [["تفتيشية"], ["متابعة"], ["متابعة تنفيذ توصيات"]]
-        await update.message.reply_text(
-            "📋 اختر <b>نوع الزيارة</b>:",
-            reply_markup=ReplyKeyboardMarkup(kb, one_time_keyboard=True, resize_keyboard=True),
-            parse_mode="HTML"
-        )
-        logging.info(f"✅ تم اختيار التاريخ ({selected_date}) والانتقال للخطوة التالية بنجاح.")
-        return VISIT_TYPE
+            kb = [["تفتيشية"], ["متابعة"], ["متابعة تنفيذ توصيات"]]
+            await update.message.reply_text(
+                "📋 اختر <b>نوع الزيارة</b>:",
+                reply_markup=ReplyKeyboardMarkup(kb, one_time_keyboard=True, resize_keyboard=True),
+                parse_mode="HTML"
+            )
+            logging.info(f"✅ تم اختيار التاريخ ({selected_date}) والانتقال للخطوة التالية بنجاح.")
+            return VISIT_TYPE
+        
     except Exception as e:
         logging.error(f"❌ حدث خطأ صامت أثناء معالجة التقويم: {e}")
         return VISIT_DATE
@@ -1992,7 +1977,7 @@ def main():
         ],
         states={
             INSTITUTION_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_institution_name)],
-            VISIT_DATE:       [CallbackQueryHandler(get_visit_date, pattern="^(IGNORE|PREV:|NEXT:|DATE:)")],
+            VISIT_DATE:       [CallbackQueryHandler(get_visit_date, pattern="^(ignore|change_month|select_date)")],
             VISIT_TYPE:       [MessageHandler(filters.TEXT & ~filters.COMMAND, get_visit_type)],
             SCHEDULE_DATE:    [MessageHandler(filters.TEXT & ~filters.COMMAND, get_schedule_date)],
         },
