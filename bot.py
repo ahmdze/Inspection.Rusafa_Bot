@@ -1222,8 +1222,8 @@ async def get_visit_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logging.info(f"✅ تم اختيار التاريخ ({selected_date}) والانتقال للخطوة التالية بنجاح.")
         return VISIT_TYPE
     except Exception as e:
-    logging.error(f"❌ حدث خطأ صامت أثناء معالجة التقويم: {e}")
-    return VISIT_DATE
+        logging.error(f"❌ حدث خطأ صامت أثناء معالجة التقويم: {e}")
+        return VISIT_DATE
 
 async def get_visit_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
     visit_type = update.message.text.strip()
