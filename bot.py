@@ -1969,8 +1969,6 @@ def main():
         fallbacks=[CommandHandler('cancel', cancel)]
     )
 
-    application.add_handler(CommandHandler('help', show_help))
-
     # --- إدخال التقرير والمرفقات (محادثة) ---
     report_handler = ConversationHandler(
         allow_reentry=True,
@@ -2024,6 +2022,8 @@ def main():
     application.add_handler(MessageHandler(filters.Regex("^📊 الإحصائيات$"), show_statistics))
     application.add_handler(CommandHandler("audit", show_audit_log))
     application.add_handler(MessageHandler(filters.Regex("^🗂 سجل العمليات$"), show_audit_log))
+    application.add_handler(CommandHandler('help', show_help))
+
 
 
     print("🤖 البوت يعمل بجميع المميزات الجديدة...")

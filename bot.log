@@ -44,3 +44,84 @@ NoneType: None
 NoneType: None
 2026-05-23 02:51:55,037 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8767469034:AAGfyYm03p-MW3_c6ehgcOuWRepn9EvQ63E/getUpdates "HTTP/1.1 200 OK"
 2026-05-23 02:52:05,200 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8767469034:AAGfyYm03p-MW3_c6ehgcOuWRepn9EvQ63E/getUpdates "HTTP/1.1 200 OK"
+2026-05-23 06:45:26,078 - __main__ - INFO - ✅ Loaded environment variables from .env
+2026-05-23 06:45:26,079 - __main__ - INFO - ✅ Bot initialized with 1 admin(s)
+2026-05-23 06:45:26,152 - database - INFO - ✅ تم إنشاء قاعدة البيانات والفهارس بنجاح
+2026-05-23 06:45:26,156 - database - WARNING - ⚠️ Migration skipped (already exists): add_rec_destination_to_reports
+2026-05-23 06:45:26,156 - database - WARNING - ⚠️ Migration skipped (already exists): add_scheduled_date_to_visits
+2026-05-23 06:45:26,157 - database - WARNING - ⚠️ Migration skipped (already exists): add_reminder_sent_to_visits
+2026-05-23 06:45:26,157 - database - WARNING - ⚠️ Migration skipped (already exists): add_closed_at_to_visits
+2026-05-23 06:45:26,157 - database - WARNING - ⚠️ Migration skipped (already exists): add_created_at_to_visits
+2026-05-23 06:45:26,157 - database - WARNING - ⚠️ Migration skipped (already exists): add_visit_type_to_visits
+2026-05-23 06:45:26,157 - database - INFO - ⏭️ Skipping PostgreSQL-only migration: fix_user_id_types_to_bigint
+2026-05-23 06:45:26,157 - database - WARNING - ⚠️ Migration skipped (already exists): add_job_title_to_visit_members
+2026-05-23 06:45:26,158 - database - WARNING - ⚠️ Migration skipped (already exists): add_full_name_to_visit_members
+2026-05-23 06:45:27,220 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8767469034:AAGfyYm03p-MW3_c6ehgcOuWRepn9EvQ63E/getMe "HTTP/1.1 200 OK"
+2026-05-23 06:45:27,301 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8767469034:AAGfyYm03p-MW3_c6ehgcOuWRepn9EvQ63E/deleteWebhook "HTTP/1.1 200 OK"
+2026-05-23 06:45:27,304 - telegram.ext.Application - INFO - Application started
+2026-05-23 06:45:32,206 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8767469034:AAGfyYm03p-MW3_c6ehgcOuWRepn9EvQ63E/getUpdates "HTTP/1.1 409 Conflict"
+2026-05-23 06:45:32,207 - __main__ - ERROR - Unhandled exception in Telegram bot handler
+NoneType: None
+2026-05-23 06:45:38,746 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8767469034:AAGfyYm03p-MW3_c6ehgcOuWRepn9EvQ63E/getUpdates "HTTP/1.1 409 Conflict"
+2026-05-23 06:45:38,750 - __main__ - ERROR - Unhandled exception in Telegram bot handler
+NoneType: None
+2026-05-23 06:45:41,350 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8767469034:AAGfyYm03p-MW3_c6ehgcOuWRepn9EvQ63E/getUpdates "HTTP/1.1 200 OK"
+2026-05-23 06:45:41,654 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8767469034:AAGfyYm03p-MW3_c6ehgcOuWRepn9EvQ63E/sendMessage "HTTP/1.1 200 OK"
+2026-05-23 06:45:44,500 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8767469034:AAGfyYm03p-MW3_c6ehgcOuWRepn9EvQ63E/getUpdates "HTTP/1.1 409 Conflict"
+2026-05-23 06:45:44,502 - __main__ - ERROR - Unhandled exception in Telegram bot handler
+NoneType: None
+2026-05-23 06:45:49,751 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8767469034:AAGfyYm03p-MW3_c6ehgcOuWRepn9EvQ63E/getUpdates "HTTP/1.1 409 Conflict"
+2026-05-23 06:45:49,758 - __main__ - ERROR - Unhandled exception in Telegram bot handler
+NoneType: None
+2026-05-23 06:45:53,049 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8767469034:AAGfyYm03p-MW3_c6ehgcOuWRepn9EvQ63E/getUpdates "HTTP/1.1 200 OK"
+2026-05-23 06:45:53,330 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8767469034:AAGfyYm03p-MW3_c6ehgcOuWRepn9EvQ63E/sendMessage "HTTP/1.1 200 OK"
+2026-05-23 06:45:56,036 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8767469034:AAGfyYm03p-MW3_c6ehgcOuWRepn9EvQ63E/getUpdates "HTTP/1.1 409 Conflict"
+2026-05-23 06:45:56,041 - __main__ - ERROR - Unhandled exception in Telegram bot handler
+NoneType: None
+2026-05-23 06:45:59,799 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8767469034:AAGfyYm03p-MW3_c6ehgcOuWRepn9EvQ63E/getUpdates "HTTP/1.1 409 Conflict"
+2026-05-23 06:45:59,801 - __main__ - ERROR - Unhandled exception in Telegram bot handler
+NoneType: None
+2026-05-23 06:46:04,241 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8767469034:AAGfyYm03p-MW3_c6ehgcOuWRepn9EvQ63E/getUpdates "HTTP/1.1 200 OK"
+2026-05-23 06:46:04,524 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8767469034:AAGfyYm03p-MW3_c6ehgcOuWRepn9EvQ63E/sendMessage "HTTP/1.1 200 OK"
+2026-05-23 06:46:05,456 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8767469034:AAGfyYm03p-MW3_c6ehgcOuWRepn9EvQ63E/getUpdates "HTTP/1.1 409 Conflict"
+2026-05-23 06:46:05,461 - __main__ - ERROR - Unhandled exception in Telegram bot handler
+NoneType: None
+2026-05-23 06:46:07,865 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8767469034:AAGfyYm03p-MW3_c6ehgcOuWRepn9EvQ63E/getUpdates "HTTP/1.1 200 OK"
+2026-05-23 06:46:07,980 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8767469034:AAGfyYm03p-MW3_c6ehgcOuWRepn9EvQ63E/sendMessage "HTTP/1.1 200 OK"
+2026-05-23 06:46:10,657 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8767469034:AAGfyYm03p-MW3_c6ehgcOuWRepn9EvQ63E/getUpdates "HTTP/1.1 200 OK"
+2026-05-23 06:46:10,789 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8767469034:AAGfyYm03p-MW3_c6ehgcOuWRepn9EvQ63E/sendMessage "HTTP/1.1 200 OK"
+2026-05-23 06:46:10,847 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8767469034:AAGfyYm03p-MW3_c6ehgcOuWRepn9EvQ63E/getUpdates "HTTP/1.1 409 Conflict"
+2026-05-23 06:46:10,852 - __main__ - ERROR - Unhandled exception in Telegram bot handler
+NoneType: None
+2026-05-23 06:46:14,973 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8767469034:AAGfyYm03p-MW3_c6ehgcOuWRepn9EvQ63E/getUpdates "HTTP/1.1 409 Conflict"
+2026-05-23 06:46:14,976 - __main__ - ERROR - Unhandled exception in Telegram bot handler
+NoneType: None
+2026-05-23 06:46:20,250 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8767469034:AAGfyYm03p-MW3_c6ehgcOuWRepn9EvQ63E/getUpdates "HTTP/1.1 409 Conflict"
+2026-05-23 06:46:20,251 - __main__ - ERROR - Unhandled exception in Telegram bot handler
+NoneType: None
+2026-05-23 06:46:22,868 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8767469034:AAGfyYm03p-MW3_c6ehgcOuWRepn9EvQ63E/getUpdates "HTTP/1.1 200 OK"
+2026-05-23 06:46:23,126 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8767469034:AAGfyYm03p-MW3_c6ehgcOuWRepn9EvQ63E/sendMessage "HTTP/1.1 200 OK"
+2026-05-23 06:46:26,039 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8767469034:AAGfyYm03p-MW3_c6ehgcOuWRepn9EvQ63E/getUpdates "HTTP/1.1 409 Conflict"
+2026-05-23 06:46:26,044 - __main__ - ERROR - Unhandled exception in Telegram bot handler
+NoneType: None
+2026-05-23 06:46:30,996 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8767469034:AAGfyYm03p-MW3_c6ehgcOuWRepn9EvQ63E/getUpdates "HTTP/1.1 409 Conflict"
+2026-05-23 06:46:31,001 - __main__ - ERROR - Unhandled exception in Telegram bot handler
+NoneType: None
+2026-05-23 06:46:37,257 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8767469034:AAGfyYm03p-MW3_c6ehgcOuWRepn9EvQ63E/getUpdates "HTTP/1.1 409 Conflict"
+2026-05-23 06:46:37,260 - __main__ - ERROR - Unhandled exception in Telegram bot handler
+NoneType: None
+2026-05-23 06:46:43,244 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8767469034:AAGfyYm03p-MW3_c6ehgcOuWRepn9EvQ63E/getUpdates "HTTP/1.1 409 Conflict"
+2026-05-23 06:46:43,249 - __main__ - ERROR - Unhandled exception in Telegram bot handler
+NoneType: None
+2026-05-23 06:46:48,653 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8767469034:AAGfyYm03p-MW3_c6ehgcOuWRepn9EvQ63E/getUpdates "HTTP/1.1 409 Conflict"
+2026-05-23 06:46:48,654 - __main__ - ERROR - Unhandled exception in Telegram bot handler
+NoneType: None
+2026-05-23 06:46:58,147 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8767469034:AAGfyYm03p-MW3_c6ehgcOuWRepn9EvQ63E/getUpdates "HTTP/1.1 409 Conflict"
+2026-05-23 06:46:58,152 - __main__ - ERROR - Unhandled exception in Telegram bot handler
+NoneType: None
+2026-05-23 06:47:10,164 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8767469034:AAGfyYm03p-MW3_c6ehgcOuWRepn9EvQ63E/getUpdates "HTTP/1.1 409 Conflict"
+2026-05-23 06:47:10,165 - __main__ - ERROR - Unhandled exception in Telegram bot handler
+NoneType: None
+2026-05-23 06:47:21,807 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8767469034:AAGfyYm03p-MW3_c6ehgcOuWRepn9EvQ63E/getUpdates "HTTP/1.1 200 OK"
+2026-05-23 06:47:21,809 - telegram.ext.Application - INFO - Application is stopping. This might take a moment.
+2026-05-23 06:47:21,809 - telegram.ext.Application - INFO - Application.stop() complete
