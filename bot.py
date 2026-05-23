@@ -1168,7 +1168,6 @@ async def get_visit_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # نستقبل البيانات من الزر الذي تم الضغط عليه
     query = update.callback_query
     await query.answer() # لإيقاف دائرة التحميل في زر تيليجرام
-    
     data = query.data
     logger.info(f"👉 تم استلام ضغطة زر من التقويم، البيانات: {data}")
     # 1. إذا ضغط على يوم فارغ أو اسم الشهر (للعرض فقط)
