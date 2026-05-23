@@ -444,7 +444,6 @@ class ReportBuilder:
         raw_name = str(self.data["institution_name"])
         raw_type = str(self.data["visit_type"])
         raw_date = str(self.data["visit_date"])
-        visit_type = str(self.data["visit_type"])
 
 
         # تنظيف الأسماء من أي رموز قد تسبب مشاكل في نظام التشغيل (OS)
