@@ -1154,61 +1154,45 @@ async def create_visit_start(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def get_institution_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.callback_query:
-        await update.callback_query.answer()
-        msg = update.callback_query.message
-    else:
-        msg = update.message
-
-    if update.message and update.message.text:
-        context.user_data['inst_name'] = update.message.text.strip()
+    context.user_data['inst_name'] = update.message.text.strip()
     
-    now = datetime.now()
-    reply_markup = create_calendar(now.year, now.month)
-
-    await msg.reply_text("📅 اختر تاريخ الزيارة من التقويم", reply_markup=reply_markup)
+    today = datetime.now().strftime("%Y-%m-%d")
+    await update.message.reply_text(
+        f"📅 اكتب تاريخ الزيارة بالصيغة:\n"
+        f"<code>YYYY-MM-DD</code>\n\n"
+        f"مثال: <code>{today}</code>\n\n"
+        f"أو أرسل <b>اليوم</b> لاختيار تاريخ اليوم.",
+        parse_mode="HTML"
+    )
     return VISIT_DATE
 
 
 async def get_visit_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # """معالج اختيار التاريخ من التقويم المبسط"""
-    query = update.callback_query
-    await query.answer() # لإيقاف دائرة التحميل في زر تيليجرام
-    data = query.data    
-    # استخدام split('|') لتحليل البيانات بشكل صحيح
-    parts = data.split('|')
-    action = parts[0]
+    text = update.message.text.strip()
     
-    if action == "ignore":
-        return VISIT_DATE
-            
-        # تغيير السنة
-    if action == "year":
-        year, month = int(parts[1]), int(parts[2])
-        await query.edit_message_reply_markup(reply_markup=create_calendar(year, month))
-        return VISIT_DATE
-
-            # تغيير الشهر
-    if action == "month":
-        year, month = int(parts[1]), int(parts[2])
-        await query.edit_message_reply_markup(reply_markup=create_calendar(year, month))
-        return VISIT_DATE
-
-    if action == "date":
-        date_str = parts[1]
-        context.user_data['visit_date'] = date_str
-
-        await query.edit_message_text(text=f"✅ تم اختيار تاريخ الزيارة: {date_str}")
-            
-        kb = [["تفتيشية"], ["متابعة"], ["متابعة تنفيذ توصيات"]]
-        await query.message.reply_text(
-            "📋 اختر <b>نوع الزيارة</b>:",
-            reply_markup=ReplyKeyboardMarkup(kb, one_time_keyboard=True, resize_keyboard=True),
-            parse_mode="HTML"
-        )
-        return VISIT_TYPE
-        
-    return VISIT_DATE
+    if text == "اليوم":
+        date_str = datetime.now().strftime("%Y-%m-%d")
+    else:
+        try:
+            datetime.strptime(text, "%Y-%m-%d")
+            date_str = text
+        except ValueError:
+            await update.message.reply_text(
+                "⚠️ صيغة غير صحيحة. أرسل التاريخ هكذا:\n"
+                "<code>2025-06-01</code>\nأو أرسل <b>اليوم</b>",
+                parse_mode="HTML"
+            )
+            return VISIT_DATE
+    
+    context.user_data['visit_date'] = date_str
+    
+    kb = [["تفتيشية"], ["متابعة"], ["متابعة تنفيذ توصيات"]]
+    await update.message.reply_text(
+        f"✅ التاريخ: {date_str}\n\n📋 اختر <b>نوع الزيارة</b>:",
+        reply_markup=ReplyKeyboardMarkup(kb, one_time_keyboard=True, resize_keyboard=True),
+        parse_mode="HTML"
+    )
+    return VISIT_TYPE
 
 async def get_visit_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
     visit_type = update.message.text.strip()
@@ -1958,24 +1942,6 @@ def main():
     application = Application.builder().token(TOKEN).build()
     _schedule_pending_reminders(application)
 
-    application.add_handler(visit_creator)
-    application.add_handler(search_handler)
-    application.add_handler(institution_handler)
-    application.add_handler(report_handler)
-
-    # --- معالج الـ Callback ---
-    application.add_handler(CallbackQueryHandler(
-        visit_callback_handler,
-        pattern="^(?!year\||month\||date_|ignore)"  # استثناء callbacks التقويم
-    ))
-    application.add_error_handler(error_handler)
-
-    # --- إدارة الزيارات والإحصائيات ---
-    application.add_handler(CommandHandler("visits", manage_visits))
-    application.add_handler(MessageHandler(filters.Regex("^📋 إدارة الزيارات$"), manage_visits))
-    application.add_handler(MessageHandler(filters.Regex("^📊 الإحصائيات$"), show_statistics))
-    application.add_handler(CommandHandler("audit", show_audit_log))
-    application.add_handler(MessageHandler(filters.Regex("^🗂 سجل العمليات$"), show_audit_log))
 
     # --- إنشاء زيارة (محادثة) ---
     visit_creator = ConversationHandler(
@@ -1985,7 +1951,7 @@ def main():
         ],
         states={
             INSTITUTION_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_institution_name)],
-            VISIT_DATE:       [CallbackQueryHandler(get_visit_date, pattern="^(year|month|date|ignore)\|")],
+            VISIT_DATE:       [MessageHandler(filters.TEXT & ~filters.COMMAND, get_visit_date)],  # ← نصي بدل callback
             VISIT_TYPE:       [MessageHandler(filters.TEXT & ~filters.COMMAND, get_visit_type)],
             SCHEDULE_DATE:    [MessageHandler(filters.TEXT & ~filters.COMMAND, get_schedule_date)],
         },
@@ -2044,6 +2010,21 @@ def main():
         },
         fallbacks=[CommandHandler('cancel', cancel)]
     )
+    
+    application.add_handler(visit_creator)
+    application.add_handler(search_handler)
+    application.add_handler(institution_handler)
+    application.add_handler(report_handler)
+    application.add_handler(CallbackQueryHandler(visit_callback_handler))
+    application.add_error_handler(error_handler)
+
+        # --- إدارة الزيارات والإحصائيات ---
+    application.add_handler(CommandHandler("visits", manage_visits))
+    application.add_handler(MessageHandler(filters.Regex("^📋 إدارة الزيارات$"), manage_visits))
+    application.add_handler(MessageHandler(filters.Regex("^📊 الإحصائيات$"), show_statistics))
+    application.add_handler(CommandHandler("audit", show_audit_log))
+    application.add_handler(MessageHandler(filters.Regex("^🗂 سجل العمليات$"), show_audit_log))
+
 
     print("🤖 البوت يعمل بجميع المميزات الجديدة...")
     application.run_polling(drop_pending_updates=True) 
