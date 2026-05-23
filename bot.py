@@ -1979,7 +1979,7 @@ def main():
         ],
         states={
             INSTITUTION_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_institution_name)],
-            VISIT_DATE:       [MessageHandler(CallbackQueryHandler(get_visit_date))],
+            VISIT_DATE:       [CallbackQueryHandler(get_visit_date)],
             VISIT_TYPE:       [MessageHandler(filters.TEXT & ~filters.COMMAND, get_visit_type)],
             SCHEDULE_DATE:    [MessageHandler(filters.TEXT & ~filters.COMMAND, get_schedule_date)],
         },
