@@ -9,45 +9,36 @@ from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
-# استيراد sqlite3 دائمًا ليكون متاحًا كاحتياط
 import sqlite3
 
-# التحقق من وجود DATABASE_URL لاستخدام PostgreSQL، وإلا نستخدم SQLite
 DATABASE_URL = os.getenv('DATABASE_URL')
 DB_PATH = 'inspection_db.sqlite'
 
 if DATABASE_URL:
-    # استخدام PostgreSQL
     try:
         import psycopg2
         from psycopg2.extras import RealDictCursor
         USE_POSTGRES = True
         logger.info("✅ Using PostgreSQL database")
     except ImportError:
-        logger.error("❌ psycopg2 not installed. Please add it to requirements.txt")
+        logger.error("❌ psycopg2 not installed.")
         USE_POSTGRES = False
-        logger.info("✅ Falling back to SQLite database")
 else:
-    # استخدام SQLite
     USE_POSTGRES = False
     logger.info("✅ Using SQLite database")
 
 
 @contextmanager
 def get_connection():
-    """إدارة اتصال قاعدة البيانات مع timeout محسّن"""
     conn = None
     try:
         if USE_POSTGRES and DATABASE_URL:
-            # اتصال PostgreSQL
             conn = psycopg2.connect(DATABASE_URL)
             yield conn
-            conn.commit()  # Commit at the end for PostgreSQL
+            conn.commit()
         else:
-            # اتصال SQLite
             conn = sqlite3.connect(DB_PATH, timeout=30.0)
             conn.row_factory = sqlite3.Row
-            # تفعيل المفاتيح الخارجية
             conn.execute("PRAGMA foreign_keys = ON")
             yield conn
     except Exception as e:
@@ -64,9 +55,8 @@ def init_db():
     """إنشاء قاعدة البيانات مع الفهارس والهجرات الرسمية"""
     with get_connection() as conn:
         cursor = conn.cursor()
-        
+
         if USE_POSTGRES:
-            # جداول PostgreSQL
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS Visits (
                     id SERIAL PRIMARY KEY,
@@ -82,7 +72,6 @@ def init_db():
                     closed_at TIMESTAMP DEFAULT NULL
                 )
             ''')
-            
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS Visit_Members (
                     id SERIAL PRIMARY KEY,
@@ -95,7 +84,6 @@ def init_db():
                     FOREIGN KEY (visit_id) REFERENCES Visits (id) ON DELETE CASCADE
                 )
             ''')
-            
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS Reports (
                     id SERIAL PRIMARY KEY,
@@ -110,7 +98,6 @@ def init_db():
                     FOREIGN KEY (visit_id) REFERENCES Visits (id) ON DELETE CASCADE
                 )
             ''')
-            
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS Attachments (
                     id SERIAL PRIMARY KEY,
@@ -125,7 +112,6 @@ def init_db():
                     FOREIGN KEY (visit_id) REFERENCES Visits (id) ON DELETE CASCADE
                 )
             ''')
-            
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS Drafts (
                     id SERIAL PRIMARY KEY,
@@ -139,7 +125,6 @@ def init_db():
                     UNIQUE(visit_id, user_id)
                 )
             ''')
-            
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS Audit_Log (
                     id SERIAL PRIMARY KEY,
@@ -152,7 +137,6 @@ def init_db():
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
-            
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS User_Sessions (
                     id SERIAL PRIMARY KEY,
@@ -167,8 +151,6 @@ def init_db():
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
-            
-            # فهارس PostgreSQL
             indexes = [
                 "CREATE INDEX IF NOT EXISTS idx_visits_status ON Visits(status)",
                 "CREATE INDEX IF NOT EXISTS idx_visits_date ON Visits(visit_date)",
@@ -186,7 +168,6 @@ def init_db():
                 "CREATE INDEX IF NOT EXISTS idx_audit_created ON Audit_Log(created_at)",
             ]
         else:
-            # جداول SQLite (كما كانت سابقاً)
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS Visits (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -202,7 +183,6 @@ def init_db():
                     closed_at TIMESTAMP DEFAULT NULL
                 )
             ''')
-            
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS Visit_Members (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -215,7 +195,6 @@ def init_db():
                     FOREIGN KEY (visit_id) REFERENCES Visits (id) ON DELETE CASCADE
                 )
             ''')
-            
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS Reports (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -230,7 +209,6 @@ def init_db():
                     FOREIGN KEY (visit_id) REFERENCES Visits (id) ON DELETE CASCADE
                 )
             ''')
-            
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS Attachments (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -245,7 +223,6 @@ def init_db():
                     FOREIGN KEY (visit_id) REFERENCES Visits (id) ON DELETE CASCADE
                 )
             ''')
-            
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS Drafts (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -259,7 +236,6 @@ def init_db():
                     UNIQUE(visit_id, user_id)
                 )
             ''')
-            
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS Audit_Log (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -272,7 +248,6 @@ def init_db():
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
-            
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS User_Sessions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -287,8 +262,6 @@ def init_db():
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
-            
-            # فهارس SQLite
             indexes = [
                 "CREATE INDEX IF NOT EXISTS idx_visits_status ON Visits(status)",
                 "CREATE INDEX IF NOT EXISTS idx_visits_date ON Visits(visit_date)",
@@ -305,13 +278,13 @@ def init_db():
                 "CREATE INDEX IF NOT EXISTS idx_audit_action ON Audit_Log(action)",
                 "CREATE INDEX IF NOT EXISTS idx_audit_created ON Audit_Log(created_at)",
             ]
-        
+
         for idx_sql in indexes:
             cursor.execute(idx_sql)
-        
+
         conn.commit()
         logger.info("✅ تم إنشاء قاعدة البيانات والفهارس بنجاح")
-        
+
         # تشغيل الهجرات
         run_migrations(conn)
 
@@ -319,8 +292,7 @@ def init_db():
 def run_migrations(conn):
     """تشغيل الهجرات الرسمية مع تسجيلها في جدول خاص"""
     cursor = conn.cursor()
-    
-    # جدول لتتبع الهجرات المطبقة
+
     if USE_POSTGRES:
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS Schema_Migrations (
@@ -337,25 +309,38 @@ def run_migrations(conn):
                 applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
-    
-    # Commit immediately after creating the table
+
     conn.commit()
-    
-    # قائمة الهجرات
-    # إضافة هجرة خاصة لإزالة القيد الفريد في PostgreSQL فقط
+
+    # ✅ قائمة الهجرات - تم حذف fix_user_id_types_to_bigint لأنها كانت None وتسبب خطأ
+    migrations = [
+        ('add_rec_destination_to_reports',
+         "ALTER TABLE Reports ADD COLUMN rec_destination TEXT"),
+        ('add_scheduled_date_to_visits',
+         "ALTER TABLE Visits ADD COLUMN scheduled_date TEXT DEFAULT NULL"),
+        ('add_reminder_sent_to_visits',
+         "ALTER TABLE Visits ADD COLUMN reminder_sent INTEGER DEFAULT 0"),
+        ('add_closed_at_to_visits',
+         "ALTER TABLE Visits ADD COLUMN closed_at TIMESTAMP"),
+        ('add_created_at_to_visits',
+         "ALTER TABLE Visits ADD COLUMN created_at TIMESTAMP"),
+        ('add_visit_type_to_visits',
+         "ALTER TABLE Visits ADD COLUMN visit_type TEXT DEFAULT 'تفتيشية'"),
+        ('add_job_title_to_visit_members',
+         "ALTER TABLE Visit_Members ADD COLUMN job_title TEXT"),
+        ('add_full_name_to_visit_members',
+         "ALTER TABLE Visit_Members ADD COLUMN full_name TEXT"),
+    ]
+
+    # هجرة خاصة بـ PostgreSQL فقط
     if USE_POSTGRES:
         migrations.append(
             ('remove_unique_constraint_visit_members',
              "ALTER TABLE Visit_Members DROP CONSTRAINT IF EXISTS visit_members_visit_id_user_id_key")
         )
-    
+
     for migration_name, sql in migrations:
-        # تخطي الهجرات الخاصة بـ PostgreSQL فقط عند استخدام SQLite
-        if sql is None and not USE_POSTGRES:
-            logger.info(f"⏭️ Skipping PostgreSQL-only migration: {migration_name}")
-            continue
-            
-        # التحقق مما إذا كانت الهجرة قد طُبقت مسبقاً
+        # التحقق من تطبيق الهجرة مسبقاً
         try:
             if USE_POSTGRES:
                 cursor.execute(
@@ -371,46 +356,20 @@ def run_migrations(conn):
                 logger.warning(f"⚠️ Migration skipped (already exists): {migration_name}")
                 continue
         except Exception as check_error:
-            # Handle case where transaction is in failed state or table doesn't exist
             error_msg = str(check_error).lower()
             if 'does not exist' in error_msg or 'current transaction is aborted' in error_msg:
-                # Rollback to clear failed transaction state
                 conn.rollback()
-                # Re-check after rollback
-                try:
-                    if USE_POSTGRES:
-                        cursor.execute(
-                            "SELECT id FROM Schema_Migrations WHERE migration_name = %s",
-                            (migration_name,)
-                        )
-                    else:
-                        cursor.execute(
-                            "SELECT id FROM Schema_Migrations WHERE migration_name = ?",
-                            (migration_name,)
-                        )
-                    if cursor.fetchone():
-                        logger.warning(f"⚠️ Migration skipped (already exists): {migration_name}")
-                        continue
-                except:
-                    conn.rollback()
-                    pass
             else:
                 raise
-        
+
         try:
+            cursor.execute(sql)
             if USE_POSTGRES:
-                cursor.execute(sql)
-                # Record migration only if Schema_Migrations table exists
-                try:
-                    cursor.execute(
-                        "INSERT INTO Schema_Migrations (migration_name) VALUES (%s)",
-                        (migration_name,)
-                    )
-                except psycopg2.errors.UndefinedTable:
-                    # Table doesn't exist yet, that's ok for early migrations
-                    pass
+                cursor.execute(
+                    "INSERT INTO Schema_Migrations (migration_name) VALUES (%s)",
+                    (migration_name,)
+                )
             else:
-                cursor.execute(sql)
                 cursor.execute(
                     "INSERT INTO Schema_Migrations (migration_name) VALUES (?)",
                     (migration_name,)
@@ -419,40 +378,26 @@ def run_migrations(conn):
             logger.info(f"✅ Migration applied: {migration_name}")
         except Exception as e:
             error_msg = str(e).lower()
+            if USE_POSTGRES:
+                conn.rollback()
             if "duplicate column" in error_msg or "already exists" in error_msg or "duplicate column name" in error_msg:
-                # العمود موجود بالفعل، نعتبر الهجرة مطبقة
                 logger.warning(f"⚠️ Migration skipped (already exists): {migration_name}")
-                # في Postgres عند حدوث خطأ فإن المعاملة تدخل في حالة فشل
-                # لذا يجب عمل rollback ثم إعادة البدء بمعامل جديدة للهجرة التالية
-                if USE_POSTGRES:
-                    conn.rollback()
                 continue
             elif "duplicate key" in error_msg or "unique constraint" in error_msg:
-                # الهجرة مسجلة بالفعل في جدول Schema_Migrations
                 logger.warning(f"⚠️ Migration already recorded: {migration_name}")
-                if USE_POSTGRES:
-                    conn.rollback()
-                continue
-            elif "relation" in error_msg and "does not exist" in error_msg:
-                # جدول Schema_Migrations غير موجود، هذا يعني أن الهجرة ستنجح لكن لن نسجلها
-                logger.warning(f"⚠️ Migration applied but not recorded (table doesn't exist yet): {migration_name}")
-                if USE_POSTGRES:
-                    conn.rollback()
                 continue
             else:
                 logger.error(f"Migration failed {migration_name}: {e}")
                 raise
-    
+
     conn.commit()
 
 
 def cleanup_old_data(days=30):
-    """تنظيف البيانات القديمة (مسودات وسجلات قديمة)"""
     with get_connection() as conn:
         cursor = conn.cursor()
         cutoff_date = datetime.now() - timedelta(days=days)
-        
-        # حذف المسودات القديمة للزيارات المغلقة
+
         if USE_POSTGRES:
             cursor.execute('''
                 DELETE FROM Drafts 
@@ -469,26 +414,27 @@ def cleanup_old_data(days=30):
                     WHERE status = 'مغلقة' AND closed_at < ?
                 )
             ''', (cutoff_date.isoformat(),))
+
         deleted_drafts = cursor.rowcount
-        
-        # حفظ سجل التنظيف
+
         if deleted_drafts > 0:
             if USE_POSTGRES:
-                cursor.execute('''
-                    INSERT INTO Audit_Log (action, details) VALUES (%s, %s)
-                ''', ('cleanup', f'Deleted {deleted_drafts} old drafts'))
+                cursor.execute(
+                    "INSERT INTO Audit_Log (action, details) VALUES (%s, %s)",
+                    ('cleanup', f'Deleted {deleted_drafts} old drafts')
+                )
             else:
-                cursor.execute('''
-                    INSERT INTO Audit_Log (action, details) VALUES (?, ?)
-                ''', ('cleanup', f'Deleted {deleted_drafts} old drafts'))
+                cursor.execute(
+                    "INSERT INTO Audit_Log (action, details) VALUES (?, ?)",
+                    ('cleanup', f'Deleted {deleted_drafts} old drafts')
+                )
             conn.commit()
             logger.info(f"🧹 Cleaned up {deleted_drafts} old drafts")
-        
+
         return deleted_drafts
 
 
 def upsert_user_session(user_id, first_name, last_name, username, language_code, is_bot=False):
-    """تحديث أو إدخال جلسة المستخدم مع تسجيل الموافقة على الخصوصية"""
     with get_connection() as conn:
         cursor = conn.cursor()
         if USE_POSTGRES:
@@ -519,11 +465,8 @@ def upsert_user_session(user_id, first_name, last_name, username, language_code,
 
 
 def delete_user_data(user_id):
-    """حذف بيانات المستخدم استجابة لطلب الخصوصية - Right to be forgotten"""
     with get_connection() as conn:
         cursor = conn.cursor()
-        
-        # حذف من Visit_Members
         if USE_POSTGRES:
             cursor.execute("DELETE FROM Visit_Members WHERE user_id = %s", (user_id,))
             cursor.execute("DELETE FROM Drafts WHERE user_id = %s", (user_id,))
@@ -538,7 +481,6 @@ def delete_user_data(user_id):
             cursor.execute("UPDATE Attachments SET user_id = 0, user_name = 'Deleted User' WHERE user_id = ?", (user_id,))
             cursor.execute("UPDATE Audit_Log SET user_name = 'Deleted User' WHERE user_id = ?", (user_id,))
             cursor.execute("DELETE FROM User_Sessions WHERE user_id = ?", (user_id,))
-        
         conn.commit()
         logger.info(f"🗑️ Deleted data for user {user_id}")
 
