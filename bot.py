@@ -6,6 +6,8 @@ import asyncio
 import logging
 import hashlib
 import requests
+import calendar
+from telegram.ext import CallbackQueryHandler, ContextTypes
 from datetime import datetime, timedelta
 from functools import wraps
 from telegram import (
@@ -122,6 +124,42 @@ def is_valid_text(value, max_length=200):
     text = sanitize_text(value, max_length)
     return bool(text)
 
+def create_calendar(year= int, month= int)-> InlineKeyboardMarkup:
+    """إنشاء لوحة مفاتيح تقويم لاختيار تاريخ"""
+    now = datetime.now()
+    year = year or now.year
+    month = month or now.month
+
+    keyboard = []
+    month_name = calendar.month_name[month]
+    keyboard.append([InlineKeyboardButton(f"{month_name} {year}", callback_data="ignore")])
+
+    week_days = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]
+    keyboard.append([InlineKeyboardButton(day, callback_data="ignore") for day in week_days])
+
+    month_calendar = calendar.monthcalendar(year, month)
+    for week in month_calendar:
+        row = []
+        for day in week:
+            if day == 0:
+                row.append(InlineKeyboardButton(" ", callback_data="ignore"))
+            else:
+                date_str = f"{year}-{month:02d}-{day:02d}"
+                row.append(InlineKeyboardButton(str(day), callback_data=build_callback_data("select_date", date_str)))
+        keyboard.append(row)
+
+    # أزرار التنقل بين الأشهر
+    prev_month = month - 1 if month > 1 else 12
+    prev_year = year if month > 1 else year - 1
+    next_month = month + 1 if month < 12 else 1
+    next_year = year if month < 12 else year + 1
+
+    keyboard.append([
+        InlineKeyboardButton("⬅️ السابق", callback_data=build_callback_data("change_month", f"{prev_year}-{prev_month}")),
+        InlineKeyboardButton("التالي ➡️", callback_data=build_callback_data("change_month", f"{next_year}-{next_month}"))
+    ])
+
+    return InlineKeyboardMarkup(keyboard)
 
 # ==========================================
 # حالات المحادثة
@@ -1125,7 +1163,7 @@ async def get_visit_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return VISIT_DATE
 
     # عرض خيارات نوع الزيارة
-    kb = [["تفتيشية"], ["متابعة"]]
+    kb = [["تفتيشية"], ["متابعة"], ["متابعة تنفيذ توصيات"]]
     await update.message.reply_text(
         "📋 اختر <b>نوع الزيارة</b>:",
         reply_markup=ReplyKeyboardMarkup(kb, one_time_keyboard=True, resize_keyboard=True),
@@ -1136,7 +1174,7 @@ async def get_visit_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def get_visit_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
     visit_type = update.message.text.strip()
-    if visit_type not in ["تفتيشية", "متابعة"]:
+    if visit_type not in ["تفتيشية", "متابعة", "متابعة تنفيذ توصيات"]:
         await update.message.reply_text("⚠️ الرجاء اختيار نوع زيارة صحيح من القائمة:")
         return VISIT_TYPE
     
@@ -1901,7 +1939,7 @@ def main():
         ],
         states={
             INSTITUTION_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_institution_name)],
-            VISIT_DATE:       [MessageHandler(filters.TEXT & ~filters.COMMAND, get_visit_date)],
+            VISIT_DATE:       [MessageHandler(CallbackQueryHandler(get_visit_date))],
             VISIT_TYPE:       [MessageHandler(filters.TEXT & ~filters.COMMAND, get_visit_type)],
             SCHEDULE_DATE:    [MessageHandler(filters.TEXT & ~filters.COMMAND, get_schedule_date)],
         },

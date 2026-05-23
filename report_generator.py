@@ -170,7 +170,7 @@ def format_date(value):
 def load_visit_data(visit_id):
     visit_info = execute_query(
         """
-        SELECT institution_name, visit_date
+        SELECT institution_name, visit_date, visit_type
         FROM Visits
         WHERE id = %s
         """,
@@ -181,7 +181,8 @@ def load_visit_data(visit_id):
     if not visit_info:
         return None
 
-    institution_name, visit_date = visit_info[0]
+    institution_name, visit_date, visit_type = visit_info[0]
+    visit_type = visit_type if visit_type else "تفتيشية"
 
     reports = execute_query(
         """
@@ -254,6 +255,7 @@ def load_visit_data(visit_id):
     return {
         "institution_name": institution_name,
         "visit_date": visit_date,
+        "visit_type": visit_type,
         "reports": grouped_notes,
         "recommendations": grouped_recommendations,
         "members": [m[0] for m in (members or [])],
@@ -287,16 +289,17 @@ class ReportBuilder:
     def build_header(self):
         inst = self.data["institution_name"]
         visit_date = format_date(self.data["visit_date"])
+        visit_type = self.data["visit_type"]
 
         p = self.doc.add_paragraph()
         force_rtl(p, align=WD_ALIGN_PARAGRAPH.CENTER)
-        run = p.add_run("م/ زيارة تفتيشية")
+        run = p.add_run(f"م/ زيارة {visit_type}")
         set_font(run, size=18, bold=True)
         self.doc.add_paragraph()
 
         intro = (
             "استناداً إلى الخطة السنوية لشعبة تفتيش المؤسسات الصحية الحكومية، "
-            f"أجرى فريق من قسم التفتيش زيارة تفتيشية إلى ({inst}) "
+            f"أجرى فريق من قسم التفتيش زيارة {visit_type} إلى ({inst}) "
             f"بتاريخ ({visit_date}) "
             "وتمت ملاحظة الآتي:"
         )
