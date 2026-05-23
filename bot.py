@@ -1,4 +1,3 @@
-from email.mime import application
 import os
 import io
 import json
@@ -7,9 +6,7 @@ import asyncio
 import logging
 import hashlib
 import requests
-import calendar
 from datetime import datetime, timedelta
-from functools import wraps
 from telegram import (
     Update,
     ReplyKeyboardMarkup,
@@ -68,9 +65,7 @@ load_env()
 TOKEN = os.getenv('TOKEN', '').strip()
 ADMIN_IDS_RAW = os.getenv('ADMIN_IDS', '').strip()
 
-# تشفير بسيط لـ ADMIN_IDS في الذاكرة (ليس حلاً كاملاً ولكن يحسن الأمان)
 def hash_admin_ids(ids_str):
-    """Hash ADMIN_IDS للتحقق السريع مع تخزين النسخة الأصلية مشفرة"""
     return hashlib.sha256(ids_str.encode()).hexdigest()
 
 if not TOKEN:
@@ -87,19 +82,16 @@ logger.info(f"✅ Bot initialized with {len(ADMIN_IDS)} admin(s)")
 
 
 def is_admin(user_id):
-    """التحقق من صلاحيات المدير"""
     return user_id in ADMIN_IDS
 
 
 def build_callback_data(action, payload=None):
-    """إنشاء callback_data موحد يمكن تحليله بأمان"""
     if payload is None or payload == "":
         return action
     return f"{action}|{payload}"
 
 
 def parse_callback_data(data):
-    """تحليل callback_data بما يدعم الشكل الجديد والشكل القديم"""
     if not data:
         return "", None
     if "|" in data:
@@ -124,54 +116,12 @@ def is_valid_text(value, max_length=200):
     text = sanitize_text(value, max_length)
     return bool(text)
 
-def create_calendar(year=None, month=None) -> InlineKeyboardMarkup:
-    """إنشاء لوحة مفاتيح تقويم لاختيار تاريخ"""
-    now = datetime.now()
-    year = year if year is not None else now.year
-    month = month if month is not None else now.month
-
-    keyboard = []
-    month_name = calendar.month_name[month]
-    keyboard.append([InlineKeyboardButton(f"📅 {month_name} {year}", callback_data="ignore")])
-
-
-
-    # أزرار تغيير السنة
-    keyboard.append([
-        InlineKeyboardButton(f"⬅️ {year-1}", callback_data=f"year|{year-1}|{month}"),
-        InlineKeyboardButton(f"{year+1} ➡️", callback_data=f"year|{year+1}|{month}")
-    ])
-
-    # أزرار التنقل بين الأشهر
-    prev_month = month - 1 if month > 1 else 12
-    prev_year = year if month > 1 else year - 1
-    next_month = month + 1 if month < 12 else 1
-    next_year = year if month < 12 else year + 1
-
-    keyboard.append([
-        InlineKeyboardButton("⬅️ شهر سابق", callback_data=f"month|{prev_year}|{prev_month}"),
-        InlineKeyboardButton("شهر التالي ➡️", callback_data=f"month|{next_year}|{next_month}")
-    ])
-
-    # أيام الشهر
-    month_calendar = calendar.monthcalendar(year, month)
-    for week in month_calendar:
-        row = []
-        for day in week:
-            if day == 0:
-                row.append(InlineKeyboardButton(" ", callback_data="ignore"))
-            else:
-                date_str = f"{year}-{month:02d}-{day:02d}"
-                row.append(InlineKeyboardButton(str(day), callback_data=f"date_{date_str}"))
-        keyboard.append(row)
-
-    return InlineKeyboardMarkup(keyboard)
 
 # ==========================================
-# حالات المحادثة
+# حالات المحادثة - مصححة بدون تعارض
 # ==========================================
-INSTITUTION_NAME, VISIT_DATE, VISIT_TYPE, SCHEDULE_DATE = range(4)
-ENTER_MEMBER_NAME, ENTER_JOB_TITLE, AXIS_NAME, SECTION_NAME, NOTES, NOTE_CONFIRM, REC_DESTINATION, RECOMMENDATIONS, LOOP_OR_END, SUMMARY_CONFIRM = range(10)
+INSTITUTION_NAME, VISIT_DATE, VISIT_TYPE, SCHEDULE_DATE = range(4)  # 0-3
+ENTER_MEMBER_NAME, ENTER_JOB_TITLE, AXIS_NAME, SECTION_NAME, NOTES, NOTE_CONFIRM, REC_DESTINATION, RECOMMENDATIONS, LOOP_OR_END, SUMMARY_CONFIRM = range(10, 20)  # 10-19
 SEARCH_QUERY = 30
 INSTITUTION_SEARCH = 31
 ATTACHMENT_CAPTION = 40
@@ -238,7 +188,6 @@ DESTINATIONS_LIST = [
     ["اكتب جهة الإيعاز يدوياً"],
     ["لا توجد توصية"],
     [BACK_BUTTON]
-
 ]
 DESTINATIONS_FLAT = [item for sublist in DESTINATIONS_LIST for item in sublist]
 
@@ -262,26 +211,19 @@ GENERAL_INFO_KB = [
     ["🛑 إنهاء الإدخال"],
     [BACK_BUTTON]
 ]
-# ==========================================
-# حالات المحادثة
-# ==========================================
 
 # ==========================================
-# أدوات قاعدة البيانات المحسنة
+# أدوات قاعدة البيانات
 # ==========================================
 def execute_query(query, params=(), fetch=False):
-    """تنفيذ استعلام قاعدة البيانات مع إدارة اتصال محسّنة"""
     try:
         with get_connection() as conn:
             cursor = conn.cursor()
             if USE_POSTGRES:
-                # Convert SQLite ? placeholders to PostgreSQL %s
                 query = query.replace('?', '%s')
             cursor.execute(query, params)
             if fetch:
                 return cursor.fetchall()
-            # For SQLite, commit is handled by the context manager
-            # For PostgreSQL, commit is also handled by the context manager
     except Exception as e:
         logger.error(f"Database error executing query: {e}")
         raise
@@ -289,13 +231,11 @@ def execute_query(query, params=(), fetch=False):
 
 
 def log_action(user_id, user_name, action, target_type, target_id, details=''):
-    """تسجيل إجراء في سجل التدقيق مع logging"""
     try:
         execute_query(
             "INSERT INTO Audit_Log (user_id, user_name, action, target_type, target_id, details) VALUES (?, ?, ?, ?, ?, ?)",
             (user_id, user_name, action, target_type, target_id, details)
         )
-        logger.debug(f"Audit: {user_name} ({user_id}) performed {action} on {target_type}#{target_id}")
     except Exception as e:
         logger.error(f"Failed to log action: {e}")
 
@@ -328,11 +268,8 @@ def load_draft(user_id, visit_id):
     _, state, payload_text = row[0]
     try:
         payload = json.loads(payload_text)
-    except json.JSONDecodeError as e:
-        logger.warning(f"Invalid JSON in draft payload: {e}")
-        return None
     except Exception as e:
-        logger.error(f"Unexpected error loading draft: {e}")
+        logger.warning(f"Invalid draft payload: {e}")
         return None
     return {'state': int(state), 'payload': payload}
 
@@ -341,15 +278,13 @@ def delete_draft(user_id, visit_id):
     execute_query("DELETE FROM Drafts WHERE visit_id = ? AND user_id = ?", (visit_id, user_id))
 
 
-def _format_datetime(dt):
-    return dt.strftime('%Y-%m-%d %H:%M')
-
-
 def _schedule_pending_reminders(application):
     rows = execute_query(
         "SELECT id, institution_name, visit_date, scheduled_date FROM Visits WHERE scheduled_date IS NOT NULL AND reminder_sent = 0 AND status = 'مفتوحة'",
         fetch=True
     )
+    if not rows:
+        return
     for visit_id, inst_name, visit_date, scheduled_date in rows:
         try:
             scheduled_dt = datetime.strptime(scheduled_date, "%Y-%m-%d %H:%M")
@@ -364,11 +299,9 @@ def _schedule_pending_reminders(application):
             )
         except Exception as e:
             logger.error(f"Failed to schedule reminder for visit {visit_id}: {e}")
-            continue
 
 
 def admin_required(func):
-    """Decorator للتحقق من صلاحية المدير"""
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = update.effective_user.id
         if not is_admin(user_id):
@@ -380,6 +313,7 @@ def admin_required(func):
         return await func(update, context)
     wrapper.__name__ = func.__name__
     return wrapper
+
 
 # ==========================================
 # 1. بداية المحادثة وانضمام الأعضاء
@@ -393,7 +327,6 @@ async def start_and_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
         visit = execute_query(
             "SELECT institution_name, status FROM Visits WHERE id = ?", (visit_id,), fetch=True
         )
-
         if not visit:
             await update.message.reply_text("⚠️ هذه الزيارة غير موجودة.")
             return ConversationHandler.END
@@ -403,9 +336,10 @@ async def start_and_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return ConversationHandler.END
 
         institution_name = visit[0][0]
-        # تجاهل البيانات السابقة وسؤال المستخدم عن الاسم والعنوان في كل مرة
-        # حفظ visit_id في متغيرات الجلسة
         context.user_data['report_visit_id'] = visit_id
+        context.user_data.pop('member_user_name', None)
+        context.user_data.pop('member_display_full_name', None)
+
         await update.message.reply_text(
             f"✅ تم دخولك إلى زيارة: <b>{institution_name}</b>\n\n"
             "📝 <b>الرجاء إدخال اسمك الثلاثي كما يظهر في الهوية الوظيفية:</b>",
@@ -428,11 +362,10 @@ async def start_and_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def start_another_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
+    """فتح آخر زيارة مفتوحة والبدء من الاسم الثلاثي"""
+    # البحث عن آخر زيارة مفتوحة
     visit = execute_query(
-        """SELECT id, institution_name FROM Visits 
-           WHERE status = 'مفتوحة'
-           ORDER BY id DESC LIMIT 1""",
+        "SELECT id, institution_name FROM Visits WHERE status = 'مفتوحة' ORDER BY id DESC LIMIT 1",
         fetch=True
     )
 
@@ -445,7 +378,8 @@ async def start_another_report(update: Update, context: ContextTypes.DEFAULT_TYP
 
     visit_id, institution_name = visit[0]
     context.user_data['report_visit_id'] = visit_id
-        # مسح البيانات القديمة للبدء من جديد
+
+    # مسح البيانات القديمة للبدء من جديد
     context.user_data.pop('member_user_name', None)
     context.user_data.pop('member_display_full_name', None)
     context.user_data.pop('pending_draft', None)
@@ -457,37 +391,43 @@ async def start_another_report(update: Update, context: ContextTypes.DEFAULT_TYP
         parse_mode="HTML"
     )
     return ENTER_MEMBER_NAME
-    
-    draft = load_draft(user_id, visit_id)
-    if draft:
-        context.user_data['pending_draft'] = draft
-        await update.message.reply_text(
-            f"✅ استئناف الإدخال لزيارة: <b>{institution_name}</b>\n\n"
-            "لديك مسودة محفوظة. هل تريد استكمالها أم البدء جديداً؟",
-            reply_markup=ReplyKeyboardMarkup(
-                [["استكمال المسودة"], ["بدء جديد"]],
-                one_time_keyboard=True, resize_keyboard=True
-            ),
-            parse_mode="HTML"
-        )
-        return DRAFT_RESUME
 
-    await update.message.reply_text(
-        f"✅ استئناف الإدخال لزيارة: <b>{institution_name}</b>\n\nاختر <b>المحور</b> أو أضف مرفقاً:",
-        reply_markup=ReplyKeyboardMarkup(REPORT_START_KB, one_time_keyboard=True, resize_keyboard=True),
-        parse_mode="HTML"
+
+async def resume_saved_draft(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    draft = execute_query(
+        "SELECT visit_id, state, payload FROM Drafts WHERE user_id = ? ORDER BY updated_at DESC LIMIT 1",
+        (user_id,), fetch=True
     )
-    return AXIS_NAME
+    if not draft:
+        await update.message.reply_text(
+            "⚠️ لم يتم العثور على مسودة محفوظة.",
+            reply_markup=ReplyKeyboardMarkup(MEMBER_MENU_KB, resize_keyboard=True)
+        )
+        return ConversationHandler.END
+
+    visit_id, state, payload_text = draft[0]
+    try:
+        payload = json.loads(payload_text)
+    except Exception as e:
+        logger.warning(f"Invalid saved draft: {e}")
+        payload = {}
+
+    context.user_data['report_visit_id'] = visit_id
+    context.user_data.update(payload)
+    await update.message.reply_text(
+        "✅ استؤنفت المسودة المحفوظة. تابع من حيث توقفت.",
+        reply_markup=ReplyKeyboardRemove()
+    )
+    return await _resume_draft_state(update, context, int(state))
 
 
 # ==========================================
 # 2. حفظ اسم العضو والعنوان الوظيفي
 # ==========================================
 async def save_member_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """حفظ الاسم الثلاثي للعضو والانتقال لطلب العنوان الوظيفي"""
-    user = update.effective_user
     user_name = update.message.text.strip()
-    
+
     if len(user_name) < 3:
         await update.message.reply_text(
             "⚠️ الرجاء إدخال اسم ثلاثي صحيح (على الأقل 3 أحرف).\n\n"
@@ -495,57 +435,45 @@ async def save_member_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="HTML"
         )
         return ENTER_MEMBER_NAME
-    
-    # حفظ الاسم في متغيرات الجلسة
+
     context.user_data['member_user_name'] = user_name
-    
+
     await update.message.reply_text(
         f"✅ تم حفظ الاسم: <b>{user_name}</b>\n\n"
-        "📝 <b>الرجاء إدخال عنوانك الوظيفي (مثال: معلم، مراقب، مشرف...):</b>",
+        "📝 <b>الرجاء إدخال عنوانك الوظيفي (مثال: طبيب، مراقب، مشرف...):</b>",
         parse_mode="HTML"
     )
     return ENTER_JOB_TITLE
 
 
 async def save_member_job_title(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """حفظ العنوان الوظيفي وإدخال العضو إلى جدول Visit_Members ثم الانتقال للمحاور"""
     user = update.effective_user
     job_title = update.message.text.strip()
-    
+
     if len(job_title) < 2:
         await update.message.reply_text(
             "⚠️ الرجاء إدخال عنوان وظيفي صحيح.\n\n"
-            "📝 <b>أدخل عنوانك الوظيفي (مثال: معلم، مراقب، مشرف...):</b>",
+            "📝 <b>أدخل عنوانك الوظيفي:</b>",
             parse_mode="HTML"
         )
         return ENTER_JOB_TITLE
-    
+
     visit_id = context.user_data.get('report_visit_id')
     user_name = context.user_data.get('member_user_name', user.full_name)
-    
-    # حساب full_name بالصيغة المطلوبة: job_title - user_name
     full_name_value = f"{job_title} - {user_name}"
-    
-    # إضافة العضو إلى قاعدة البيانات مع الاسم والعنوان الوظيفي
+
     try:
-        # السماح بتسجيلات متعددة لنفس المستخدم في نفس الزيارة بأسماء مختلفة
-        # نستخدم ON CONFLICT DO UPDATE على اساس id (اذا تم تمريره) او نقوم بادراج جديد دائماً
-        # بما اننا ازلنا القيد UNIQUE(visit_id, user_id)، يمكن الآن ادراج سجلات متعددة
         execute_query(
-            """INSERT INTO Visit_Members (visit_id, user_id, user_name, full_name, job_title)
-               VALUES (?, ?, ?, ?, ?)""",
+            "INSERT INTO Visit_Members (visit_id, user_id, user_name, full_name, job_title) VALUES (?, ?, ?, ?, ?)",
             (visit_id, user.id, user_name, full_name_value, job_title)
         )
-        
-        # الحصول على اسم المؤسسة للترحيب
-        visit = execute_query(
-            "SELECT institution_name FROM Visits WHERE id = ?", (visit_id,), fetch=True
-        )
+
+        visit = execute_query("SELECT institution_name FROM Visits WHERE id = ?", (visit_id,), fetch=True)
         institution_name = visit[0][0] if visit else "الزيارة"
-        
-        # تخزين full_name بالصيغة المطلوبة للاستخدام في الإشعارات
+
         context.user_data['member_display_full_name'] = full_name_value
-        
+        context.user_data.pop('member_user_name', None)
+
         await update.message.reply_text(
             f"✅ تم تسجيل بياناتك بنجاح!\n"
             f"👤 الاسم: {user_name}\n"
@@ -555,19 +483,11 @@ async def save_member_job_title(update: Update, context: ContextTypes.DEFAULT_TY
             reply_markup=ReplyKeyboardMarkup(REPORT_START_KB, one_time_keyboard=True, resize_keyboard=True),
             parse_mode="HTML"
         )
-        
-        # تنظيف متغيرات الجلسة المؤقتة
-        context.user_data.pop('member_user_name', None)
-        
         return AXIS_NAME
-        
+
     except Exception as e:
         logger.error(f"Error saving member data: {e}")
-        await update.message.reply_text(
-            "⚠️ حدث خطأ أثناء حفظ بياناتك. حاول مرة أخرى.\n\n"
-            "إذا استمر الخطأ، تواصل مع المشرف.",
-            parse_mode="HTML"
-        )
+        await update.message.reply_text("⚠️ حدث خطأ أثناء حفظ بياناتك. حاول مرة أخرى.")
         return ConversationHandler.END
 
 
@@ -577,6 +497,7 @@ async def save_member_job_title(update: Update, context: ContextTypes.DEFAULT_TY
 async def get_axis_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['current_state'] = AXIS_NAME
     axis = update.message.text
+
     if axis == ATTACHMENT_BUTTON:
         await update.message.reply_text(
             "📎 أرسل الآن الصورة أو الملف الذي تريد إرفاقه:",
@@ -600,7 +521,7 @@ async def get_axis_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         section_kb = SECTION_PRESETS.get(axis, [["اكتب اسم القسم يدوياً"]])
         await update.message.reply_text(
-            "📂 اختر قسماً متكرراً أو اكتب اسم القسم:",
+            "📂 اختر قسماً أو اكتب اسم القسم:",
             reply_markup=ReplyKeyboardMarkup(section_kb, one_time_keyboard=True, resize_keyboard=True)
         )
     return SECTION_NAME
@@ -609,9 +530,10 @@ async def get_axis_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def get_section_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['current_state'] = SECTION_NAME
     section_text = update.message.text.strip()
+
     if section_text == BACK_BUTTON:
         await update.message.reply_text(
-            "✅ عدت إلى قائمة المحاور. اختر المحور المطلوب:",
+            "✅ عدت إلى قائمة المحاور:",
             reply_markup=ReplyKeyboardMarkup(REPORT_START_KB, one_time_keyboard=True, resize_keyboard=True)
         )
         return AXIS_NAME
@@ -624,16 +546,14 @@ async def get_section_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
 
     if section_text == "اكتب اسم القسم يدوياً":
-        await update.message.reply_text(
-            "📂 اكتب اسم القسم:",
-            reply_markup=ReplyKeyboardRemove()
-        )
+        await update.message.reply_text("📂 اكتب اسم القسم:", reply_markup=ReplyKeyboardRemove())
         return SECTION_NAME
 
     context.user_data['current_section'] = section_text
-    if context.user_data['current_axis'] == "المعلومات العامة":
+
+    if context.user_data.get('current_axis') == "المعلومات العامة":
         await update.message.reply_text(
-            f"🔢 أدخل القيمة لـ <b>{context.user_data['current_section']}</b>:",
+            f"🔢 أدخل القيمة لـ <b>{section_text}</b>:",
             reply_markup=ReplyKeyboardRemove(), parse_mode="HTML"
         )
     else:
@@ -647,31 +567,31 @@ async def get_section_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def get_notes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['current_state'] = NOTES
     text = update.message.text.strip()
+
     if text == BACK_BUTTON:
         await update.message.reply_text(
-            "✅ عدت إلى القائمة السابقة. اختر القسم أو المحور:",
+            "✅ عدت إلى قائمة المحاور:",
             reply_markup=ReplyKeyboardMarkup(REPORT_START_KB, one_time_keyboard=True, resize_keyboard=True)
         )
         return AXIS_NAME
 
     context.user_data['current_notes'] = text
+
     if context.user_data.get('current_axis') == "المعلومات العامة":
         execute_query(
             "INSERT INTO Reports (visit_id, user_id, axis_name, section_name, notes, rec_destination, recommendations) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (context.user_data['report_visit_id'], update.effective_user.id,
              context.user_data['current_axis'], context.user_data['current_section'],
-             context.user_data['current_notes'], "", "")
+             text, "", "")
         )
-        # استخدام full_name بالصيغة المطلوبة (job_title - full_name) إذا كان متاحاً
         sender_display_name = context.user_data.get('member_display_full_name', update.effective_user.full_name)
         await _notify_admins_report(context, sender_display_name,
                                     context.user_data['report_visit_id'],
                                     context.user_data['current_axis'],
                                     context.user_data['current_section'])
         await update.message.reply_text(
-            "✅ تم حفظ المعلومة!\nاختر حقلاً آخر من المعلومات العامة أو عد للمحاور:",
-            reply_markup=ReplyKeyboardMarkup(GENERAL_INFO_KB, resize_keyboard=True),
-            parse_mode="HTML"
+            "✅ تم حفظ المعلومة!\nاختر حقلاً آخر:",
+            reply_markup=ReplyKeyboardMarkup(GENERAL_INFO_KB, resize_keyboard=True)
         )
         return SECTION_NAME
 
@@ -680,30 +600,6 @@ async def get_notes(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🎯 لمن تود توجيه التوصية؟",
         reply_markup=ReplyKeyboardMarkup(DESTINATIONS_LIST, one_time_keyboard=True, resize_keyboard=True)
     )
-    return REC_DESTINATION
-
-
-async def confirm_note_entry(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    choice = update.message.text
-    if choice == "✏️ تعديل الملاحظة":
-        await update.message.reply_text("✍️ حسناً، أعد كتابة الملاحظة أو القيمة:")
-        return NOTES
-
-    if choice != "✅ حفظ الملاحظة":
-        await update.message.reply_text(
-            "⚠️ اختر إما حفظ الملاحظة أو تعديلها.",
-            reply_markup=ReplyKeyboardMarkup(
-                [["✅ حفظ الملاحظة"], ["✏️ تعديل الملاحظة"]],
-                one_time_keyboard=True, resize_keyboard=True
-            )
-        )
-        return NOTE_CONFIRM
-
-    await update.message.reply_text(
-        "🎯 لمن تود توجيه التوصية؟",
-        reply_markup=ReplyKeyboardMarkup(DESTINATIONS_LIST, one_time_keyboard=True, resize_keyboard=True)
-    )
-    context.user_data['current_recommendations'] = []
     return REC_DESTINATION
 
 
@@ -711,60 +607,52 @@ async def get_rec_destination(update: Update, context: ContextTypes.DEFAULT_TYPE
     context.user_data['current_state'] = REC_DESTINATION
     text = update.message.text.strip()
 
-    # If we previously asked the user to type a custom destination, accept any text now
     if context.user_data.get('awaiting_custom_destination'):
-        dest = text
         context.user_data.pop('awaiting_custom_destination', None)
-        context.user_data['current_rec_dest'] = dest
+        context.user_data['current_rec_dest'] = text
         context.user_data['current_recommendations'] = []
         await update.message.reply_text(
-            "💡 اكتب نص التوصية الأولى أو أرسل (لا توجد توصية):",
-            reply_markup=ReplyKeyboardMarkup([["لا توجد توصية"]], one_time_keyboard=True, resize_keyboard=True),
-            parse_mode="HTML"
+            "💡 اكتب نص التوصية أو أرسل (لا توجد توصية):",
+            reply_markup=ReplyKeyboardMarkup([["لا توجد توصية"]], one_time_keyboard=True, resize_keyboard=True)
         )
         return RECOMMENDATIONS
 
     if text == BACK_BUTTON:
+        axis = context.user_data.get('current_axis', '')
+        kb = SECTION_PRESETS.get(axis, [["اكتب اسم القسم يدوياً"]]) if axis != "المعلومات العامة" else GENERAL_INFO_KB
         await update.message.reply_text(
-            "✅ عدت إلى القسم السابق. اختر القسم أو المحور:",
-            reply_markup=ReplyKeyboardMarkup(SECTION_PRESETS.get(context.user_data.get('current_axis'), [["اكتب اسم القسم يدوياً"]]) if context.user_data.get('current_axis') != "المعلومات العامة" else GENERAL_INFO_KB, one_time_keyboard=True, resize_keyboard=True)
+            "✅ عدت إلى القسم السابق:",
+            reply_markup=ReplyKeyboardMarkup(kb, one_time_keyboard=True, resize_keyboard=True)
         )
         return SECTION_NAME
 
-    # If user chose to write destination manually, prompt for it
     if text == "اكتب جهة الإيعاز يدوياً":
         context.user_data['awaiting_custom_destination'] = True
-        await update.message.reply_text(
-            "📌 اكتب جهة الإيعاز يدوياً:",
-            reply_markup=ReplyKeyboardRemove()
-        )
+        await update.message.reply_text("📌 اكتب جهة الإيعاز:", reply_markup=ReplyKeyboardRemove())
         return REC_DESTINATION
 
-    # Allow saving draft while selecting destination
     if text == "💾 حفظ كمسودة":
         user = update.effective_user
         visit_id = context.user_data.get('report_visit_id')
         save_draft(user.id, visit_id, user.full_name, REC_DESTINATION, context.user_data)
         await update.message.reply_text(
-            "💾 تم حفظ المسودة! يمكنك العودة لاحقاً لاستكمالها.",
+            "💾 تم حفظ المسودة!",
             reply_markup=ReplyKeyboardMarkup(MEMBER_MENU_KB if not is_admin(user.id) else ADMIN_MENU_KB, resize_keyboard=True)
         )
         return ConversationHandler.END
 
-    dest = text
-    if dest not in DESTINATIONS_FLAT:
+    if text not in DESTINATIONS_FLAT:
         await update.message.reply_text(
             "⚠️ اختر جهة توجيه صحيحة:",
             reply_markup=ReplyKeyboardMarkup(DESTINATIONS_LIST, one_time_keyboard=True, resize_keyboard=True)
         )
         return REC_DESTINATION
 
-    context.user_data['current_rec_dest'] = dest
+    context.user_data['current_rec_dest'] = text
     context.user_data['current_recommendations'] = []
     await update.message.reply_text(
-        "💡 اكتب نص التوصية الأولى أو أرسل (لا توجد توصية):",
-        reply_markup=ReplyKeyboardMarkup([["لا توجد توصية"]], one_time_keyboard=True, resize_keyboard=True),
-        parse_mode="HTML"
+        "💡 اكتب نص التوصية أو أرسل (لا توجد توصية):",
+        reply_markup=ReplyKeyboardMarkup([["لا توجد توصية"]], one_time_keyboard=True, resize_keyboard=True)
     )
     return RECOMMENDATIONS
 
@@ -776,21 +664,18 @@ async def get_recommendations(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     if text == BACK_BUTTON:
         await update.message.reply_text(
-            "✅ عدت إلى اختيار جهة الإيعاز. اختر جهة الإيعاز:",
+            "✅ عدت إلى اختيار جهة الإيعاز:",
             reply_markup=ReplyKeyboardMarkup(DESTINATIONS_LIST, one_time_keyboard=True, resize_keyboard=True)
         )
         return REC_DESTINATION
 
     if text == "لا توجد توصية":
-        recommendation_text = ""
-        await _save_report_entry(update, context, recommendation_text)
+        await _save_report_entry(update, context, "")
         return LOOP_OR_END
 
     if text == "✅ إنهاء التوصيات":
         if not current_recs:
-            await update.message.reply_text(
-                "⚠️ أرسل توصية واحدة على الأقل أو اختر (لا توجد توصية)."
-            )
+            await update.message.reply_text("⚠️ أرسل توصية واحدة على الأقل أو اختر (لا توجد توصية).")
             return RECOMMENDATIONS
         recommendation_text = "\n".join(f"- {r}" for r in current_recs)
         await _save_report_entry(update, context, recommendation_text)
@@ -809,19 +694,24 @@ async def get_recommendations(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 async def _save_report_entry(update: Update, context: ContextTypes.DEFAULT_TYPE, recommendations_text: str):
+    # التحقق من وجود البيانات المطلوبة
+    visit_id = context.user_data.get('report_visit_id')
+    axis = context.user_data.get('current_axis', '')
+    section = context.user_data.get('current_section', '')
+    notes = context.user_data.get('current_notes', '')
+    rec_dest = context.user_data.get('current_rec_dest', '')
+
+    if not all([visit_id, axis, section]):
+        logger.error("Missing required data for report entry")
+        await update.message.reply_text("⚠️ حدث خطأ، بيانات ناقصة. حاول من البداية.")
+        return
+
     execute_query(
         "INSERT INTO Reports (visit_id, user_id, axis_name, section_name, notes, rec_destination, recommendations) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (context.user_data['report_visit_id'], update.effective_user.id,
-         context.user_data['current_axis'], context.user_data['current_section'],
-         context.user_data['current_notes'], context.user_data['current_rec_dest'],
-         recommendations_text)
+        (visit_id, update.effective_user.id, axis, section, notes, rec_dest, recommendations_text)
     )
-    # استخدام full_name بالصيغة المطلوبة (job_title - full_name) إذا كان متاحاً
     sender_display_name = context.user_data.get('member_display_full_name', update.effective_user.full_name)
-    await _notify_admins_report(context, sender_display_name,
-                                context.user_data['report_visit_id'],
-                                context.user_data['current_axis'],
-                                context.user_data['current_section'])
+    await _notify_admins_report(context, sender_display_name, visit_id, axis, section)
     await update.message.reply_text(
         "📥 تم الحفظ!\nهل تود إضافة المزيد؟",
         reply_markup=ReplyKeyboardMarkup(
@@ -832,7 +722,6 @@ async def _save_report_entry(update: Update, context: ContextTypes.DEFAULT_TYPE,
 
 
 async def _notify_admins_report(context, full_name, visit_id, axis, section):
-    """إشعار المدراء عند إرسال ملاحظة جديدة"""
     visit_info = execute_query("SELECT institution_name FROM Visits WHERE id = ?", (visit_id,), fetch=True)
     if not visit_info:
         return
@@ -848,7 +737,7 @@ async def _notify_admins_report(context, full_name, visit_id, axis, section):
                 parse_mode="HTML"
             )
         except TelegramError as e:
-            logger.warning(f"Failed to notify admin {admin_id} of new report: {e}")
+            logger.warning(f"Failed to notify admin {admin_id}: {e}")
         except Exception as e:
             logger.error(f"Unexpected error notifying admin {admin_id}: {e}")
 
@@ -862,10 +751,7 @@ async def resume_draft_choice(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     if choice == "استكمال المسودة":
         context.user_data.update(draft['payload'])
-        await update.message.reply_text(
-            "✅ استؤنفت المسودة. تابع من حيث توقفت.",
-            reply_markup=ReplyKeyboardRemove()
-        )
+        await update.message.reply_text("✅ استؤنفت المسودة.", reply_markup=ReplyKeyboardRemove())
         return await _resume_draft_state(update, context, draft['state'])
 
     delete_draft(update.effective_user.id, context.user_data['report_visit_id'])
@@ -876,42 +762,10 @@ async def resume_draft_choice(update: Update, context: ContextTypes.DEFAULT_TYPE
     return AXIS_NAME
 
 
-async def resume_saved_draft(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    draft = execute_query(
-        "SELECT visit_id, state, payload FROM Drafts WHERE user_id = ? ORDER BY updated_at DESC LIMIT 1",
-        (user_id,), fetch=True
-    )
-    if not draft:
-        await update.message.reply_text(
-            "⚠️ لم يتم العثور على مسودة محفوظة.",
-            reply_markup=ReplyKeyboardMarkup(MEMBER_MENU_KB, resize_keyboard=True)
-        )
-        return ConversationHandler.END
-
-    visit_id, state, payload_text = draft[0]
-    try:
-        payload = json.loads(payload_text)
-    except json.JSONDecodeError as e:
-        logger.warning(f"Invalid JSON in saved draft: {e}")
-        payload = {}
-    except Exception as e:
-        logger.error(f"Unexpected error loading saved draft: {e}")
-        payload = {}
-
-    context.user_data['report_visit_id'] = visit_id
-    context.user_data.update(payload)
-    await update.message.reply_text(
-        "✅ استؤنفت المسودة المحفوظة. تابع من حيث توقفت.",
-        reply_markup=ReplyKeyboardRemove()
-    )
-    return await _resume_draft_state(update, context, int(state))
-
-
 async def _resume_draft_state(update: Update, context: ContextTypes.DEFAULT_TYPE, state: int):
     if state == AXIS_NAME:
         await update.message.reply_text(
-            "اختر <b>المحور</b> المطلوب:",
+            "اختر <b>المحور</b>:",
             reply_markup=ReplyKeyboardMarkup(REPORT_START_KB, one_time_keyboard=True, resize_keyboard=True),
             parse_mode="HTML"
         )
@@ -920,15 +774,12 @@ async def _resume_draft_state(update: Update, context: ContextTypes.DEFAULT_TYPE
         axis = context.user_data.get('current_axis', "المحور الفني")
         section_kb = SECTION_PRESETS.get(axis, [["اكتب اسم القسم يدوياً"]])
         await update.message.reply_text(
-            "📂 اختر قسماً متكرراً أو اكتب اسم القسم:",
+            "📂 اختر القسم:",
             reply_markup=ReplyKeyboardMarkup(section_kb, one_time_keyboard=True, resize_keyboard=True)
         )
         return SECTION_NAME
     if state == NOTES:
-        await update.message.reply_text(
-            "🔍 أرسل الملاحظة التفتيشية لهذا القسم:",
-            reply_markup=ReplyKeyboardRemove()
-        )
+        await update.message.reply_text("🔍 أرسل الملاحظة:", reply_markup=ReplyKeyboardRemove())
         return NOTES
     if state == REC_DESTINATION:
         await update.message.reply_text(
@@ -938,10 +789,8 @@ async def _resume_draft_state(update: Update, context: ContextTypes.DEFAULT_TYPE
         return REC_DESTINATION
     if state == RECOMMENDATIONS:
         await update.message.reply_text(
-            "💡 أرسل نص التوصية أو اختر (لا توجد توصية):",
-            reply_markup=ReplyKeyboardMarkup(
-                [["لا توجد توصية"]], one_time_keyboard=True, resize_keyboard=True
-            )
+            "💡 أرسل نص التوصية:",
+            reply_markup=ReplyKeyboardMarkup([["لا توجد توصية"]], one_time_keyboard=True, resize_keyboard=True)
         )
         return RECOMMENDATIONS
     if state == LOOP_OR_END:
@@ -953,10 +802,7 @@ async def _resume_draft_state(update: Update, context: ContextTypes.DEFAULT_TYPE
             )
         )
         return LOOP_OR_END
-    await update.message.reply_text(
-        "✅ تابع متى شئت.",
-        reply_markup=ReplyKeyboardRemove()
-    )
+    await update.message.reply_text("✅ تابع متى شئت.", reply_markup=ReplyKeyboardRemove())
     return AXIS_NAME
 
 
@@ -974,10 +820,7 @@ async def _notify_admins_entry_summary(update: Update, context: ContextTypes.DEF
         try:
             await context.bot.send_message(
                 admin_id,
-                f"📌 <b>انتهى إدخال عضو</b>\n"
-                f"👤 {user_name}\n"
-                f"🏥 {inst_name}\n"
-                f"📝 عدد الملاحظات التي أرسلها: {total}",
+                f"📌 <b>انتهى إدخال عضو</b>\n👤 {user_name}\n🏥 {inst_name}\n📝 عدد الملاحظات: {total}",
                 parse_mode="HTML"
             )
         except Exception:
@@ -1000,13 +843,13 @@ async def _show_end_summary(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📋 ملخص قبل الإنهاء:\n"
         f"عدد الملاحظات: {reports_count}\n"
         f"عدد العناصر مع توصيات: {recommendations_count}\n\n"
-        "هل تريد التأكيد على إنهاء الجلسة أم إضافة المزيد؟",
+        "هل تريد التأكيد؟",
         reply_markup=ReplyKeyboardMarkup(
-            [["✅ تأكيد الإنهاء"], ["➕ إضافة قسم آخر"], ["📎 إرفاق صورة/ملف"], ["💾 حفظ كمسودة"], [BACK_BUTTON]],
+            [["✅ تأكيد الإنهاء"], ["➕ إضافة قسم آخر"], ["📎 إرفاق صورة/ملف"], ["💾 حفظ كمسودة"]],
             one_time_keyboard=True, resize_keyboard=True
         )
     )
-    return SUMMARY_CONFIRM
+    return LOOP_OR_END
 
 
 async def process_loop_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1015,7 +858,7 @@ async def process_loop_choice(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     if choice == "➕ إضافة قسم آخر":
         await update.message.reply_text(
-            "اختر <b>المحور</b> للقسم الجديد:",
+            "اختر <b>المحور</b>:",
             reply_markup=ReplyKeyboardMarkup(REPORT_START_KB, resize_keyboard=True),
             parse_mode="HTML"
         )
@@ -1023,8 +866,7 @@ async def process_loop_choice(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     elif choice == "📎 إرفاق صورة/ملف":
         await update.message.reply_text(
-            "📎 أرسل الصورة أو الملف الآن، ويمكنك إضافة وصف مختصر معه.\n"
-            "بعد الإرسال ستُسألك إن كنت تريد إرفاق المزيد.",
+            "📎 أرسل الصورة أو الملف الآن:",
             reply_markup=ReplyKeyboardRemove()
         )
         return ATTACHMENT_CAPTION
@@ -1034,71 +876,43 @@ async def process_loop_choice(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     elif choice == BACK_BUTTON:
         await update.message.reply_text(
-            "✅ عدت إلى قائمة المحاور. اختر المحور أو أضف مرفقاً:",
+            "✅ عدت إلى قائمة المحاور:",
             reply_markup=ReplyKeyboardMarkup(REPORT_START_KB, one_time_keyboard=True, resize_keyboard=True)
         )
         return AXIS_NAME
 
-    elif choice == "✅ تأكيد الإنهاء":
-        reports_count = execute_query(
-            "SELECT COUNT(*) FROM Reports WHERE visit_id = ? AND user_id = ?",
-            (context.user_data['report_visit_id'], update.effective_user.id), fetch=True
-        )[0][0]
-        attachments_count = execute_query(
-            "SELECT COUNT(*) FROM Attachments WHERE visit_id = ? AND user_id = ?",
-            (context.user_data['report_visit_id'], update.effective_user.id), fetch=True
-        )[0][0]
-
-        if is_admin(update.effective_user.id):
-            await update.message.reply_text(
-                f"✅ تم إنهاء جلستك.\nعدد الملاحظات: {reports_count}\nعدد المرفقات: {attachments_count}",
-                reply_markup=ReplyKeyboardMarkup(ADMIN_MENU_KB, resize_keyboard=True)
-            )
-        else:
-            await update.message.reply_text(
-                f"✅ تم إرسال تقريرك بنجاح. شكراً لجهودك.\nعدد الملاحظات: {reports_count}\nعدد المرفقات: {attachments_count}",
-                reply_markup=ReplyKeyboardMarkup(MEMBER_MENU_KB, resize_keyboard=True)
-            )
-        await _notify_admins_entry_summary(update, context, update.effective_user.full_name, context.user_data['report_visit_id'])
-        delete_draft(update.effective_user.id, context.user_data['report_visit_id'])
-        return ConversationHandler.END
-
-    elif choice == "💾 حفظ كمسودة":
+    elif choice in ("✅ تأكيد الإنهاء", "💾 حفظ كمسودة") or True:
+        # معالجة الإنهاء والمسودة وأي اختيار آخر
         user = update.effective_user
-        save_draft(user.id, context.user_data['report_visit_id'], user.full_name, LOOP_OR_END, context.user_data)
-        await update.message.reply_text(
-            "💾 تم حفظ المسودة! يمكنك العودة لاحقاً لاستكمالها.",
-            reply_markup=ReplyKeyboardMarkup(MEMBER_MENU_KB if not is_admin(user.id) else ADMIN_MENU_KB, resize_keyboard=True)
-        )
-        return ConversationHandler.END
+        visit_id = context.user_data.get('report_visit_id')
 
-    else:
+        if choice == "💾 حفظ كمسودة":
+            save_draft(user.id, visit_id, user.full_name, LOOP_OR_END, context.user_data)
+            await update.message.reply_text(
+                "💾 تم حفظ المسودة!",
+                reply_markup=ReplyKeyboardMarkup(MEMBER_MENU_KB if not is_admin(user.id) else ADMIN_MENU_KB, resize_keyboard=True)
+            )
+            return ConversationHandler.END
+
         reports_count = execute_query(
             "SELECT COUNT(*) FROM Reports WHERE visit_id = ? AND user_id = ?",
-            (context.user_data['report_visit_id'], update.effective_user.id), fetch=True
+            (visit_id, user.id), fetch=True
         )[0][0]
         attachments_count = execute_query(
             "SELECT COUNT(*) FROM Attachments WHERE visit_id = ? AND user_id = ?",
-            (context.user_data['report_visit_id'], update.effective_user.id), fetch=True
+            (visit_id, user.id), fetch=True
         )[0][0]
 
-        if is_admin(update.effective_user.id):
-            await update.message.reply_text(
-                f"✅ تم إنهاء جلستك.\nعدد الملاحظات: {reports_count}\nعدد المرفقات: {attachments_count}",
-                reply_markup=ReplyKeyboardMarkup(ADMIN_MENU_KB, resize_keyboard=True)
-            )
-        else:
-            await update.message.reply_text(
-                f"✅ تم إرسال تقريرك بنجاح. شكراً لجهودك.\nعدد الملاحظات: {reports_count}\nعدد المرفقات: {attachments_count}",
-                reply_markup=ReplyKeyboardMarkup(MEMBER_MENU_KB, resize_keyboard=True)
-            )
-        await _notify_admins_entry_summary(update, context, update.effective_user.full_name, context.user_data['report_visit_id'])
-        delete_draft(update.effective_user.id, context.user_data['report_visit_id'])
+        msg = f"✅ تم إنهاء جلستك.\nعدد الملاحظات: {reports_count}\nعدد المرفقات: {attachments_count}"
+        kb = ADMIN_MENU_KB if is_admin(user.id) else MEMBER_MENU_KB
+        await update.message.reply_text(msg, reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
+        await _notify_admins_entry_summary(update, context, user.full_name, visit_id)
+        delete_draft(user.id, visit_id)
         return ConversationHandler.END
 
 
 # ==========================================
-# 3. استقبال المرفقات (صور وملفات)
+# 4. استقبال المرفقات
 # ==========================================
 async def receive_attachment(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -1109,9 +923,7 @@ async def receive_attachment(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     msg = update.message
     caption = msg.caption or ""
-    file_id = None
-    file_type = None
-    file_name = None
+    file_id = file_type = file_name = None
 
     if msg.photo:
         file_id = msg.photo[-1].file_id
@@ -1126,7 +938,7 @@ async def receive_attachment(update: Update, context: ContextTypes.DEFAULT_TYPE)
         file_type = "video"
         file_name = f"video_{file_id[:8]}.mp4"
     else:
-        await update.message.reply_text("⚠️ نوع الملف غير مدعوم. أرسل صورة أو ملف.")
+        await update.message.reply_text("⚠️ نوع الملف غير مدعوم.")
         return LOOP_OR_END
 
     execute_query(
@@ -1134,7 +946,6 @@ async def receive_attachment(update: Update, context: ContextTypes.DEFAULT_TYPE)
         (visit_id, user.id, user.full_name, file_id, file_type, file_name, caption)
     )
 
-    # إشعار المدير بالمرفق الجديد
     visit_info = execute_query("SELECT institution_name FROM Visits WHERE id = ?", (visit_id,), fetch=True)
     inst_name = visit_info[0][0] if visit_info else "؟"
     for admin_id in ADMIN_IDS:
@@ -1148,7 +959,7 @@ async def receive_attachment(update: Update, context: ContextTypes.DEFAULT_TYPE)
             pass
 
     await update.message.reply_text(
-        "✅ تم حفظ المرفق!\nهل تود إرفاق المزيد أو المتابعة؟",
+        "✅ تم حفظ المرفق!",
         reply_markup=ReplyKeyboardMarkup(
             [["📎 إرفاق صورة/ملف أخرى"], ["➕ إضافة قسم آخر"], ["🛑 إنهاء الإدخال"], [BACK_BUTTON]],
             one_time_keyboard=True, resize_keyboard=True
@@ -1158,26 +969,19 @@ async def receive_attachment(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 # ==========================================
-# 4. أوامر المدير - إنشاء زيارة
+# 5. أوامر المدير - إنشاء زيارة
 # ==========================================
 @admin_required
 async def create_visit_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "✏️ اكتب اسم المؤسسة الصحية:",
-        reply_markup=ReplyKeyboardRemove()
-    )
+    await update.message.reply_text("✏️ اكتب اسم المؤسسة الصحية:", reply_markup=ReplyKeyboardRemove())
     return INSTITUTION_NAME
 
 
 async def get_institution_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['inst_name'] = update.message.text.strip()
-    
     today = datetime.now().strftime("%Y-%m-%d")
     await update.message.reply_text(
-        f"📅 اكتب تاريخ الزيارة بالصيغة:\n"
-        f"<code>YYYY-MM-DD</code>\n\n"
-        f"مثال: <code>{today}</code>\n\n"
-        f"أو أرسل <b>اليوم</b> لاختيار تاريخ اليوم.",
+        f"📅 اكتب تاريخ الزيارة بالصيغة:\n<code>YYYY-MM-DD</code>\n\nمثال: <code>{today}</code>\n\nأو أرسل <b>اليوم</b>.",
         parse_mode="HTML"
     )
     return VISIT_DATE
@@ -1185,7 +989,7 @@ async def get_institution_name(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def get_visit_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
-    
+
     if text == "اليوم":
         date_str = datetime.now().strftime("%Y-%m-%d")
     else:
@@ -1194,14 +998,12 @@ async def get_visit_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
             date_str = text
         except ValueError:
             await update.message.reply_text(
-                "⚠️ صيغة غير صحيحة. أرسل التاريخ هكذا:\n"
-                "<code>2025-06-01</code>\nأو أرسل <b>اليوم</b>",
+                "⚠️ صيغة غير صحيحة. أرسل التاريخ هكذا:\n<code>2025-06-01</code>\nأو أرسل <b>اليوم</b>",
                 parse_mode="HTML"
             )
             return VISIT_DATE
-    
+
     context.user_data['visit_date'] = date_str
-    
     kb = [["تفتيشية"], ["متابعة"], ["متابعة تنفيذ توصيات"]]
     await update.message.reply_text(
         f"✅ التاريخ: {date_str}\n\n📋 اختر <b>نوع الزيارة</b>:",
@@ -1210,18 +1012,17 @@ async def get_visit_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return VISIT_TYPE
 
+
 async def get_visit_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
     visit_type = update.message.text.strip()
     if visit_type not in ["تفتيشية", "متابعة", "متابعة تنفيذ توصيات"]:
-        await update.message.reply_text("⚠️ الرجاء اختيار نوع زيارة صحيح من القائمة:")
+        await update.message.reply_text("⚠️ الرجاء اختيار نوع زيارة صحيح من القائمة.")
         return VISIT_TYPE
-    
+
     context.user_data['visit_type'] = visit_type
-    
     await update.message.reply_text(
-        "⏰ هل تريد جدولة تذكير لهذه الزيارة؟\n"
-        "أرسل تاريخ ووقت التذكير بصيغة YYYY-MM-DD HH:MM (مثال: 2025-06-01 08:00)\n"
-        "أو أرسل (لا) للتخطي:",
+        "⏰ هل تريد جدولة تذكير؟\n"
+        "أرسل التاريخ والوقت بصيغة YYYY-MM-DD HH:MM\nأو أرسل (لا) للتخطي:",
         reply_markup=ReplyKeyboardRemove()
     )
     return SCHEDULE_DATE
@@ -1231,6 +1032,7 @@ async def get_schedule_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     inst_name = context.user_data['inst_name']
     visit_date = context.user_data['visit_date']
+    visit_type = context.user_data.get('visit_type', 'تفتيشية')
 
     scheduled_date = None
     if text.lower() != "لا":
@@ -1238,27 +1040,27 @@ async def get_schedule_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
             scheduled_dt = datetime.strptime(text, "%Y-%m-%d %H:%M")
             scheduled_date = scheduled_dt.strftime("%Y-%m-%d %H:%M")
         except ValueError:
-            await update.message.reply_text(
-                "⚠️ صيغة التذكير غير صحيحة. أرسل التاريخ والوقت بصيغة YYYY-MM-DD HH:MM أو أرسل (لا)."
-            )
+            await update.message.reply_text("⚠️ صيغة التذكير غير صحيحة. أرسل بصيغة YYYY-MM-DD HH:MM أو (لا).")
             return SCHEDULE_DATE
 
     with get_connection() as conn:
         cursor = conn.cursor()
-        visit_type = context.user_data.get('visit_type', 'تفتيشية')
         if USE_POSTGRES:
-            query = "INSERT INTO Visits (institution_name, visit_date, visit_type, manager_id, status, scheduled_date) VALUES (%s, %s, %s, %s, 'مفتوحة', %s) RETURNING id"
-            cursor.execute(query, (inst_name, visit_date, visit_type, update.effective_user.id, scheduled_date))
+            cursor.execute(
+                "INSERT INTO Visits (institution_name, visit_date, visit_type, manager_id, status, scheduled_date) VALUES (%s, %s, %s, %s, 'مفتوحة', %s) RETURNING id",
+                (inst_name, visit_date, visit_type, update.effective_user.id, scheduled_date)
+            )
             visit_id = cursor.fetchone()[0]
         else:
-            query = "INSERT INTO Visits (institution_name, visit_date, visit_type, manager_id, status, scheduled_date) VALUES (?, ?, ?, ?, 'مفتوحة', ?)"
-            cursor.execute(query, (inst_name, visit_date, visit_type, update.effective_user.id, scheduled_date))
+            cursor.execute(
+                "INSERT INTO Visits (institution_name, visit_date, visit_type, manager_id, status, scheduled_date) VALUES (?, ?, ?, ?, 'مفتوحة', ?)",
+                (inst_name, visit_date, visit_type, update.effective_user.id, scheduled_date)
+            )
             visit_id = cursor.lastrowid
 
     if scheduled_date:
         try:
-            scheduled_dt = datetime.strptime(scheduled_date, "%Y-%m-%d %H:%M")
-            delay = (scheduled_dt - datetime.now()).total_seconds()
+            delay = (datetime.strptime(scheduled_date, "%Y-%m-%d %H:%M") - datetime.now()).total_seconds()
             if delay < 0:
                 delay = 1
             context.job_queue.run_once(
@@ -1267,8 +1069,8 @@ async def get_schedule_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 data={'visit_id': visit_id, 'inst_name': inst_name, 'visit_date': visit_date},
                 name=f"reminder_{visit_id}"
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error(f"Failed to schedule reminder: {e}")
 
     link = f"https://t.me/InspectionRusafa_bot?start=join_{visit_id}"
     await update.message.reply_text(
@@ -1276,7 +1078,7 @@ async def get_schedule_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🏥 المؤسسة: {inst_name}\n"
         f"📅 التاريخ: {visit_date}\n"
         f"📋 النوع: {visit_type}\n"
-        f"{'⏰ تذكير مجدول: ' + scheduled_date if scheduled_date else ''}\n\n"
+        f"{'⏰ تذكير: ' + scheduled_date if scheduled_date else ''}\n\n"
         f"🔗 <b>رابط الانضمام:</b>\n<code>{link}</code>",
         reply_markup=ReplyKeyboardMarkup(ADMIN_MENU_KB, resize_keyboard=True),
         parse_mode="HTML"
@@ -1285,7 +1087,6 @@ async def get_schedule_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def send_visit_reminder(context: ContextTypes.DEFAULT_TYPE):
-    """إرسال تذكير بالزيارة المجدولة"""
     data = context.job.data
     for admin_id in ADMIN_IDS:
         try:
@@ -1294,8 +1095,7 @@ async def send_visit_reminder(context: ContextTypes.DEFAULT_TYPE):
                 f"⏰ <b>تذكير بزيارة مجدولة!</b>\n"
                 f"🏥 المؤسسة: {data['inst_name']}\n"
                 f"📅 التاريخ: {data['visit_date']}\n"
-                f"🔗 رابط الزيارة:\n"
-                f"<code>https://t.me/InspectionRusafa_bot?start=join_{data['visit_id']}</code>",
+                f"🔗 <code>https://t.me/InspectionRusafa_bot?start=join_{data['visit_id']}</code>",
                 parse_mode="HTML"
             )
         except Exception:
@@ -1304,7 +1104,7 @@ async def send_visit_reminder(context: ContextTypes.DEFAULT_TYPE):
 
 
 # ==========================================
-# 5. إدارة الزيارات
+# 6. إدارة الزيارات
 # ==========================================
 @admin_required
 async def manage_visits(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1314,8 +1114,7 @@ async def manage_visits(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @admin_required
 async def manage_institutions(update: Update, context: ContextTypes.DEFAULT_TYPE):
     institutions = execute_query(
-        "SELECT DISTINCT institution_name FROM Visits ORDER BY institution_name ASC",
-        fetch=True
+        "SELECT DISTINCT institution_name FROM Visits ORDER BY institution_name ASC", fetch=True
     )
     if not institutions:
         await update.message.reply_text(
@@ -1324,16 +1123,13 @@ async def manage_institutions(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return ConversationHandler.END
 
-    context.user_data['institution_map'] = {
-        str(idx): row[0]
-        for idx, row in enumerate(institutions, start=1)
-    }
+    context.user_data['institution_map'] = {str(idx): row[0] for idx, row in enumerate(institutions, start=1)}
     keyboard = [
         [InlineKeyboardButton(row[0], callback_data=build_callback_data("institution", idx))]
         for idx, row in enumerate(institutions, start=1)
     ]
     await update.message.reply_text(
-        "🏥 اختر مؤسسة من القائمة أو اكتب جزءاً من اسم المؤسسة للبحث:",
+        "🏥 اختر مؤسسة أو اكتب جزءاً من الاسم للبحث:",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
     return INSTITUTION_SEARCH
@@ -1341,25 +1137,15 @@ async def manage_institutions(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def institution_search_execute(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query_text = update.message.text.strip()
-    if not query_text:
-        return await manage_institutions(update, context)
-
-    query = f"%{query_text}%"
     institutions = execute_query(
         "SELECT DISTINCT institution_name FROM Visits WHERE institution_name LIKE ? ORDER BY institution_name ASC",
-        (query,), fetch=True
+        (f"%{query_text}%",), fetch=True
     )
     if not institutions:
-        await update.message.reply_text(
-            "⚠️ لا توجد مؤسسات مطابقة.",
-            reply_markup=ReplyKeyboardMarkup(ADMIN_MENU_KB, resize_keyboard=True)
-        )
+        await update.message.reply_text("⚠️ لا توجد مؤسسات مطابقة.")
         return ConversationHandler.END
 
-    context.user_data['institution_map'] = {
-        str(idx): row[0]
-        for idx, row in enumerate(institutions, start=1)
-    }
+    context.user_data['institution_map'] = {str(idx): row[0] for idx, row in enumerate(institutions, start=1)}
     keyboard = [
         [InlineKeyboardButton(row[0], callback_data=build_callback_data("institution", idx))]
         for idx, row in enumerate(institutions, start=1)
@@ -1371,16 +1157,13 @@ async def institution_search_execute(update: Update, context: ContextTypes.DEFAU
     return INSTITUTION_SEARCH
 
 
-async def _show_institution_visits(query, institution_name, context: ContextTypes.DEFAULT_TYPE):
+async def _show_institution_visits(query, institution_name, context):
     visits = execute_query(
         "SELECT id, visit_date, status FROM Visits WHERE institution_name = ? ORDER BY visit_date DESC, id DESC",
         (institution_name,), fetch=True
     )
     if not visits:
-        await query.message.reply_text(
-            "⚠️ لا توجد زيارات لهذه المؤسسة.",
-            reply_markup=ReplyKeyboardMarkup(ADMIN_MENU_KB, resize_keyboard=True)
-        )
+        await query.message.reply_text("⚠️ لا توجد زيارات لهذه المؤسسة.")
         return
 
     keyboard = [
@@ -1388,59 +1171,50 @@ async def _show_institution_visits(query, institution_name, context: ContextType
         for v in visits
     ]
     keyboard.insert(0, [InlineKeyboardButton("◀️ العودة للمؤسسات", callback_data="institutions_list")])
-
     await query.edit_message_text(
-        f"🏥 <b>{institution_name}</b>\n📋 اختر زيارة لعرض الخيارات:",
+        f"🏥 <b>{institution_name}</b>\n📋 اختر زيارة:",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="HTML"
     )
 
 
-async def _show_institutions_list(query, context: ContextTypes.DEFAULT_TYPE):
+async def _show_institutions_list(query, context):
     institutions = execute_query(
-        "SELECT DISTINCT institution_name FROM Visits ORDER BY institution_name ASC",
-        fetch=True
+        "SELECT DISTINCT institution_name FROM Visits ORDER BY institution_name ASC", fetch=True
     )
     if not institutions:
-        await query.edit_message_text(
-            "⚠️ لا توجد مؤسسات مسجلة.",
-        )
+        await query.edit_message_text("⚠️ لا توجد مؤسسات.")
         return
 
-    context.user_data['institution_map'] = {
-        str(idx): row[0]
-        for idx, row in enumerate(institutions, start=1)
-    }
+    context.user_data['institution_map'] = {str(idx): row[0] for idx, row in enumerate(institutions, start=1)}
     keyboard = [
         [InlineKeyboardButton(row[0], callback_data=build_callback_data("institution", idx))]
         for idx, row in enumerate(institutions, start=1)
     ]
     await query.edit_message_text(
-        "🏥 اختر مؤسسة من القائمة أو اكتب جزءاً من اسم المؤسسة للبحث:",
+        "🏥 اختر مؤسسة:",
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
 
 async def _show_visits_list(update, status=None, order='DESC'):
-    query_conditions = []
-    params = []
+    condition = ""
     if status == 'open':
-        query_conditions.append("status = 'مفتوحة'")
+        condition = "WHERE status = 'مفتوحة'"
     elif status == 'closed':
-        query_conditions.append("status = 'مغلقة'")
+        condition = "WHERE status = 'مغلقة'"
 
-    condition = f"WHERE {' AND '.join(query_conditions)}" if query_conditions else ""
     visits = execute_query(
         f"SELECT id, institution_name, visit_date, status FROM Visits {condition} ORDER BY visit_date {order}, id {order}",
         fetch=True
     )
 
     if not visits:
-        message = "⚠️ لا توجد زيارات مطابقة." if status else "⚠️ لا توجد زيارات مسجلة."
+        msg = "⚠️ لا توجد زيارات."
         if hasattr(update, 'callback_query') and update.callback_query:
-            await update.callback_query.edit_message_text(message)
+            await update.callback_query.edit_message_text(msg)
         else:
-            await update.message.reply_text(message)
+            await update.message.reply_text(msg)
         return
 
     keyboard = [
@@ -1452,33 +1226,25 @@ async def _show_visits_list(update, status=None, order='DESC'):
     ]
     keyboard += [
         [InlineKeyboardButton(
-            f"{'🟢' if v[3] == 'مفتوحة' else '🔴'} {v[1]} ({v[2]})",
+            f"{'🟢' if v[3]=='مفتوحة' else '🔴'} {v[1]} ({v[2]})",
             callback_data=build_callback_data("select", v[0])
         )]
         for v in visits
     ]
     text = "📋 <b>قائمة الزيارات:</b>"
-    if status == 'open':
-        text += "\n<i>عرض الزيارات المفتوحة فقط</i>"
-    elif status == 'closed':
-        text += "\n<i>عرض الزيارات المغلقة فقط</i>"
 
     if hasattr(update, 'callback_query') and update.callback_query:
         await update.callback_query.edit_message_text(
-            text,
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="HTML"
+            text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML"
         )
     else:
         await update.message.reply_text(
-            text,
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="HTML"
+            text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="HTML"
         )
 
 
 # ==========================================
-# 6. الإحصائيات
+# 7. الإحصائيات
 # ==========================================
 @admin_required
 async def show_statistics(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1490,74 +1256,61 @@ async def show_statistics(update: Update, context: ContextTypes.DEFAULT_TYPE):
     total_attachments = execute_query("SELECT COUNT(*) FROM Attachments", fetch=True)[0][0]
 
     axis_summary = execute_query(
-        "SELECT axis_name, COUNT(*) FROM Reports GROUP BY axis_name ORDER BY COUNT(*) DESC",
-        fetch=True
+        "SELECT axis_name, COUNT(*) FROM Reports GROUP BY axis_name ORDER BY COUNT(*) DESC", fetch=True
     )
     frequent_sections = execute_query(
-        "SELECT section_name, COUNT(*) FROM Reports GROUP BY section_name ORDER BY COUNT(*) DESC LIMIT 5",
-        fetch=True
+        "SELECT section_name, COUNT(*) FROM Reports GROUP BY section_name ORDER BY COUNT(*) DESC LIMIT 5", fetch=True
     )
     top_institutions = execute_query(
-        "SELECT institution_name, COUNT(*) FROM Visits GROUP BY institution_name ORDER BY COUNT(*) DESC LIMIT 5",
-        fetch=True
+        "SELECT institution_name, COUNT(*) FROM Visits GROUP BY institution_name ORDER BY COUNT(*) DESC LIMIT 5", fetch=True
     )
 
-    axis_text = "\n".join([f"- {row[0]}: {row[1]}" for row in axis_summary])
-    sections_text = "\n".join([f"- {row[0]} ({row[1]})" for row in frequent_sections])
-    institutions_text = "\n".join([f"- {row[0]} ({row[1]} زيارة)" for row in top_institutions])
+    axis_text = "\n".join([f"- {r[0]}: {r[1]}" for r in axis_summary]) or "لا توجد بيانات"
+    sections_text = "\n".join([f"- {r[0]} ({r[1]})" for r in frequent_sections]) or "لا توجد بيانات"
+    institutions_text = "\n".join([f"- {r[0]} ({r[1]} زيارة)" for r in top_institutions]) or "لا توجد بيانات"
 
     await update.message.reply_text(
         f"📊 <b>إحصائيات النظام</b>\n\n"
         f"🏥 إجمالي الزيارات: {total_visits}\n"
         f"  🟢 مفتوحة: {open_visits}\n"
         f"  🔴 مغلقة: {closed_visits}\n\n"
-        f"👥 إجمالي الأعضاء المسجلين: {total_members}\n"
-        f"📝 إجمالي الملاحظات: {total_reports}\n"
-        f"📎 إجمالي المرفقات: {total_attachments}\n\n"
-        f"📌 الملاحظات حسب المحور:\n{axis_text}\n\n"
-        f"📂 أكثر الأقسام تكراراً:\n{sections_text}\n\n"
-        f"🏥 أكثر المؤسسات زيارة:\n{institutions_text}",
+        f"👥 الأعضاء: {total_members}\n"
+        f"📝 الملاحظات: {total_reports}\n"
+        f"📎 المرفقات: {total_attachments}\n\n"
+        f"📌 حسب المحور:\n{axis_text}\n\n"
+        f"📂 أكثر الأقسام:\n{sections_text}\n\n"
+        f"🏥 أكثر المؤسسات:\n{institutions_text}",
         parse_mode="HTML",
         reply_markup=ReplyKeyboardMarkup(ADMIN_MENU_KB, resize_keyboard=True)
     )
 
 
 # ==========================================
-# 7. البحث
+# 8. البحث
 # ==========================================
 @admin_required
 async def search_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "🔍 اكتب اسم المؤسسة أو جزءاً منه للبحث:",
-        reply_markup=ReplyKeyboardRemove()
-    )
+    await update.message.reply_text("🔍 اكتب اسم المؤسسة أو جزءاً منه:", reply_markup=ReplyKeyboardRemove())
     return SEARCH_QUERY
 
 
 async def search_execute(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = f"%{update.message.text}%"
     results = execute_query(
         "SELECT id, institution_name, visit_date, status FROM Visits WHERE institution_name LIKE ? ORDER BY id DESC",
-        (query,), fetch=True
+        (f"%{update.message.text}%",), fetch=True
     )
     if not results:
-        await update.message.reply_text(
-            "⚠️ لا توجد نتائج.",
-            reply_markup=ReplyKeyboardMarkup(ADMIN_MENU_KB, resize_keyboard=True)
-        )
+        await update.message.reply_text("⚠️ لا توجد نتائج.", reply_markup=ReplyKeyboardMarkup(ADMIN_MENU_KB, resize_keyboard=True))
         return ConversationHandler.END
 
     keyboard = [
         [InlineKeyboardButton(
-            f"{'🟢' if v[3] == 'مفتوحة' else '🔴'} {v[1]} ({v[2]})",
+            f"{'🟢' if v[3]=='مفتوحة' else '🔴'} {v[1]} ({v[2]})",
             callback_data=build_callback_data("select", v[0])
         )]
         for v in results
     ]
-    await update.message.reply_text(
-        f"🔍 نتائج البحث ({len(results)}):",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    await update.message.reply_text(f"🔍 نتائج البحث ({len(results)}):", reply_markup=InlineKeyboardMarkup(keyboard))
     return ConversationHandler.END
 
 
@@ -1568,18 +1321,18 @@ async def show_audit_log(update: Update, context: ContextTypes.DEFAULT_TYPE):
         fetch=True
     )
     if not rows:
-        await update.message.reply_text("⚠️ لا توجد سجلات حتى الآن.")
+        await update.message.reply_text("⚠️ لا توجد سجلات.")
         return
 
     text = "🧾 <b>سجل العمليات الأخير</b>\n\n"
     for user_name, action, target_type, target_id, details, created_at in rows:
-        text += f"[{created_at}] {user_name} - {action} - {target_type} {target_id} - {details}\n"
+        text += f"[{created_at}] {user_name} - {action} - {target_type} {target_id}\n"
 
     await update.message.reply_text(text, parse_mode="HTML")
 
 
 # ==========================================
-# 8. معالج الـ Callback (إدارة الزيارات)
+# 9. معالج الـ Callback
 # ==========================================
 async def visit_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
@@ -1591,14 +1344,12 @@ async def visit_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
     data = query.data
     action, payload = parse_callback_data(data)
 
-    # --- عرض تفاصيل زيارة ---
     if action == "select":
-        if not payload or not payload.isdigit():
-            await query.answer("⚠️ بيانات الزيارة غير صحيحة.", show_alert=True)
+        if not payload or not str(payload).isdigit():
+            await query.answer("⚠️ بيانات غير صحيحة.", show_alert=True)
             return
         await _show_visit_menu(query, payload)
 
-    # --- تصفية الزيارات ---
     elif action == "filter":
         if payload == 'open':
             await _show_visits_list(query, status='open', order='DESC')
@@ -1608,9 +1359,9 @@ async def visit_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
             await _show_visits_list(query, status=None, order='DESC')
 
     elif action == "institution":
-        institution_name = context.user_data.get('institution_map', {}).get(payload)
+        institution_name = context.user_data.get('institution_map', {}).get(str(payload))
         if not institution_name:
-            await query.answer("⚠️ لا يمكن العثور على المؤسسة. أعد البحث.", show_alert=True)
+            await query.answer("⚠️ لا يمكن العثور على المؤسسة.", show_alert=True)
             return
         await _show_institution_visits(query, institution_name, context)
 
@@ -1621,52 +1372,46 @@ async def visit_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         order = 'ASC' if payload == 'oldest' else 'DESC'
         await _show_visits_list(query, status=None, order=order)
 
-    # --- نسخ الرابط ---
     elif action == "link":
-        if not payload or not payload.isdigit():
-            await query.answer("⚠️ بيانات الرابط غير صحيحة.", show_alert=True)
+        if not payload or not str(payload).isdigit():
+            await query.answer("⚠️ بيانات غير صحيحة.", show_alert=True)
             return
         await query.message.reply_text(
-            f"🔗 <b>رابط الانضمام:</b>\n"
-            f"<code>https://t.me/InspectionRusafa_bot?start=join_{payload}</code>",
+            f"🔗 <b>رابط الانضمام:</b>\n<code>https://t.me/InspectionRusafa_bot?start=join_{payload}</code>",
             parse_mode="HTML"
         )
 
-    # --- إغلاق الزيارة ---
     elif action == "close":
-        if not payload or not payload.isdigit():
-            await query.answer("⚠️ بيانات الزيارة غير صحيحة.", show_alert=True)
+        if not payload or not str(payload).isdigit():
+            await query.answer("⚠️ بيانات غير صحيحة.", show_alert=True)
             return
         execute_query("UPDATE Visits SET status = 'مغلقة' WHERE id = ?", (payload,))
         await query.edit_message_text("🔒 <b>تم إغلاق الزيارة.</b>", parse_mode="HTML")
-        log_action(update.effective_user.id, update.effective_user.full_name, 'close_visit', 'visit', int(payload), 'أغلق الزيارة من لوحة الإدارة')
+        log_action(update.effective_user.id, update.effective_user.full_name, 'close_visit', 'visit', int(payload), 'إغلاق')
 
-    # --- إعادة فتح ---
     elif action == "reopen":
-        if not payload or not payload.isdigit():
-            await query.answer("⚠️ بيانات الزيارة غير صحيحة.", show_alert=True)
+        if not payload or not str(payload).isdigit():
+            await query.answer("⚠️ بيانات غير صحيحة.", show_alert=True)
             return
         execute_query("UPDATE Visits SET status = 'مفتوحة' WHERE id = ?", (payload,))
         await query.edit_message_text("🔓 <b>تم إعادة فتح الزيارة!</b>", parse_mode="HTML")
-        log_action(update.effective_user.id, update.effective_user.full_name, 'reopen_visit', 'visit', int(payload), 'أعاد فتح الزيارة من لوحة الإدارة')
+        log_action(update.effective_user.id, update.effective_user.full_name, 'reopen_visit', 'visit', int(payload), 'إعادة فتح')
 
-    # --- ملخص نصي سريع ---
     elif action == "preview":
-        if not payload or not payload.isdigit():
-            await query.answer("⚠️ بيانات العرض غير صحيحة.", show_alert=True)
+        if not payload or not str(payload).isdigit():
+            await query.answer("⚠️ بيانات غير صحيحة.", show_alert=True)
             return
         await _show_text_preview(query, payload)
 
-    # --- حذف ملاحظة ---
     elif action == "del_reports":
-        if not payload or not payload.isdigit():
-            await query.answer("⚠️ بيانات الملاحظة غير صحيحة.", show_alert=True)
+        if not payload or not str(payload).isdigit():
+            await query.answer("⚠️ بيانات غير صحيحة.", show_alert=True)
             return
         await _show_deletable_reports(query, payload)
 
     elif action == "delrep":
-        if not payload or not payload.isdigit():
-            await query.answer("⚠️ بيانات الملاحظة غير صحيحة.", show_alert=True)
+        if not payload or not str(payload).isdigit():
+            await query.answer("⚠️ بيانات غير صحيحة.", show_alert=True)
             return
         await query.edit_message_text(
             "هل أنت متأكد من حذف هذه الملاحظة؟",
@@ -1677,58 +1422,52 @@ async def visit_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         )
 
     elif action == "confirm_delrep":
-        if not payload or not payload.isdigit():
-            await query.answer("⚠️ بيانات الحذف غير صحيحة.", show_alert=True)
+        if not payload or not str(payload).isdigit():
+            await query.answer("⚠️ بيانات غير صحيحة.", show_alert=True)
             return
         execute_query("DELETE FROM Reports WHERE id = ?", (payload,))
         await query.edit_message_text("🗑️ تم حذف الملاحظة.")
-        log_action(update.effective_user.id, update.effective_user.full_name, 'delete_report', 'report', int(payload), 'تم حذف ملاحظة من لوحة الإدارة')
+        log_action(update.effective_user.id, update.effective_user.full_name, 'delete_report', 'report', int(payload), 'حذف ملاحظة')
 
     elif action == "cancel_action":
         await query.edit_message_text("❌ تم إلغاء العملية.")
 
-    # --- تجميع المرفقات ---
     elif action == "attachments":
-        if not payload or not payload.isdigit():
-            await query.answer("⚠️ بيانات المرفقات غير صحيحة.", show_alert=True)
+        if not payload or not str(payload).isdigit():
+            await query.answer("⚠️ بيانات غير صحيحة.", show_alert=True)
             return
         await _send_attachments_zip(query, payload, context)
 
-    # --- حذف الزيارة ---
     elif action == "delete":
-        if not payload or not payload.isdigit():
-            await query.answer("⚠️ بيانات الزيارة غير صحيحة.", show_alert=True)
+        if not payload or not str(payload).isdigit():
+            await query.answer("⚠️ بيانات غير صحيحة.", show_alert=True)
             return
         await query.edit_message_text(
             "هل أنت متأكد من حذف هذه الزيارة وجميع بياناتها؟",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("نعم، احذف الزيارة", callback_data=build_callback_data("confirm_delete", payload))],
+                [InlineKeyboardButton("نعم، احذف", callback_data=build_callback_data("confirm_delete", payload))],
                 [InlineKeyboardButton("لا، إلغاء", callback_data="cancel_action")]
             ])
         )
 
     elif action == "confirm_delete":
-        if not payload or not payload.isdigit():
-            await query.answer("⚠️ بيانات الحذف غير صحيحة.", show_alert=True)
+        if not payload or not str(payload).isdigit():
+            await query.answer("⚠️ بيانات غير صحيحة.", show_alert=True)
             return
-        execute_query("DELETE FROM Reports WHERE visit_id = ?", (payload,))
-        execute_query("DELETE FROM Visit_Members WHERE visit_id = ?", (payload,))
-        execute_query("DELETE FROM Attachments WHERE visit_id = ?", (payload,))
+        for table in ["Reports", "Visit_Members", "Attachments", "Drafts"]:
+            execute_query(f"DELETE FROM {table} WHERE visit_id = ?", (payload,))
         execute_query("DELETE FROM Visits WHERE id = ?", (payload,))
         await query.edit_message_text("🗑️ تم حذف الزيارة وجميع بياناتها.")
-        log_action(update.effective_user.id, update.effective_user.full_name, 'delete_visit', 'visit', int(payload), 'حذف زيارة ونهجها بالكامل')
+        log_action(update.effective_user.id, update.effective_user.full_name, 'delete_visit', 'visit', int(payload), 'حذف زيارة')
 
-    # --- إصدار التقرير ---
     elif action == "export":
-        if not payload or not payload.isdigit():
-            await query.answer("⚠️ بيانات الزيارة غير صحيحة.", show_alert=True)
+        if not payload or not str(payload).isdigit():
+            await query.answer("⚠️ بيانات غير صحيحة.", show_alert=True)
             return
         await query.edit_message_text("🔄 جاري إنشاء التقرير...")
         file_name, inst_name = generate_docx_report(payload, bot_token=TOKEN)
         if not file_name:
-            await context.bot.send_message(
-                query.message.chat_id, "⚠️ لا توجد بيانات لهذه الزيارة."
-            )
+            await context.bot.send_message(query.message.chat_id, "⚠️ لا توجد بيانات لهذه الزيارة.")
             return
         with open(file_name, 'rb') as f:
             await context.bot.send_document(
@@ -1742,27 +1481,17 @@ async def visit_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
 
 
 async def _show_visit_menu(query, visit_id):
-    """عرض قائمة إدارة الزيارة"""
     visit_info = execute_query(
-        "SELECT institution_name, status, visit_date FROM Visits WHERE id = ?",
-        (visit_id,), fetch=True
+        "SELECT institution_name, status, visit_date FROM Visits WHERE id = ?", (visit_id,), fetch=True
     )
     if not visit_info:
         await query.edit_message_text("⚠️ الزيارة غير موجودة.")
         return
 
     inst_name, status, v_date = visit_info[0]
-    members_count = execute_query(
-        "SELECT COUNT(*) FROM Visit_Members WHERE visit_id = ?", (visit_id,), fetch=True
-    )[0][0]
-    reports_count = execute_query(
-        "SELECT COUNT(*) FROM Reports WHERE visit_id = ?", (visit_id,), fetch=True
-    )[0][0]
-    attach_count = execute_query(
-        "SELECT COUNT(*) FROM Attachments WHERE visit_id = ?", (visit_id,), fetch=True
-    )[0][0]
-
-    status_text = "مفتوحة 🟢" if status == "مفتوحة" else "مغلقة 🔴"
+    members_count = execute_query("SELECT COUNT(*) FROM Visit_Members WHERE visit_id = ?", (visit_id,), fetch=True)[0][0]
+    reports_count = execute_query("SELECT COUNT(*) FROM Reports WHERE visit_id = ?", (visit_id,), fetch=True)[0][0]
+    attach_count = execute_query("SELECT COUNT(*) FROM Attachments WHERE visit_id = ?", (visit_id,), fetch=True)[0][0]
 
     keyboard = [
         [InlineKeyboardButton("📄 إصدار التقرير Word", callback_data=build_callback_data("export", visit_id))],
@@ -1779,18 +1508,16 @@ async def _show_visit_menu(query, visit_id):
 
     keyboard.append([InlineKeyboardButton("🗑️ حذف الزيارة نهائياً", callback_data=build_callback_data("delete", visit_id))])
 
+    status_text = "مفتوحة 🟢" if status == "مفتوحة" else "مغلقة 🔴"
     await query.edit_message_text(
-        f"🏥 <b>{inst_name}</b>\n"
-        f"📅 التاريخ: {v_date}\n"
-        f"الحالة: {status_text}\n"
-        f"👥 الأعضاء: {members_count} | 📝 الملاحظات: {reports_count} | 📎 المرفقات: {attach_count}",
+        f"🏥 <b>{inst_name}</b>\n📅 {v_date}\nالحالة: {status_text}\n"
+        f"👥 {members_count} | 📝 {reports_count} | 📎 {attach_count}",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="HTML"
     )
 
 
 async def _show_text_preview(query, visit_id):
-    """عرض ملخص نصي سريع للزيارة"""
     reports = execute_query(
         "SELECT axis_name, section_name, notes FROM Reports WHERE visit_id = ? LIMIT 15",
         (visit_id,), fetch=True
@@ -1806,13 +1533,12 @@ async def _show_text_preview(query, visit_id):
 
     total = execute_query("SELECT COUNT(*) FROM Reports WHERE visit_id = ?", (visit_id,), fetch=True)[0][0]
     if total > 15:
-        text += f"<i>... و{total - 15} ملاحظة أخرى (في التقرير الكامل)</i>"
+        text += f"<i>... و{total - 15} ملاحظة أخرى</i>"
 
     await query.edit_message_text(text, parse_mode="HTML")
 
 
 async def _show_deletable_reports(query, visit_id):
-    """عرض قائمة الملاحظات لحذف واحدة منها"""
     reports = execute_query(
         "SELECT id, axis_name, section_name FROM Reports WHERE visit_id = ? ORDER BY id DESC LIMIT 20",
         (visit_id,), fetch=True
@@ -1822,107 +1548,77 @@ async def _show_deletable_reports(query, visit_id):
         return
 
     keyboard = [
-        [InlineKeyboardButton(
-            f"🗑 {r[1]} / {r[2][:20]}",
-            callback_data=build_callback_data("delrep", r[0])
-        )]
+        [InlineKeyboardButton(f"🗑 {r[1]} / {r[2][:20]}", callback_data=build_callback_data("delrep", r[0]))]
         for r in reports
     ]
-    await query.edit_message_text(
-        "اختر الملاحظة التي تريد حذفها:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
+    await query.edit_message_text("اختر الملاحظة للحذف:", reply_markup=InlineKeyboardMarkup(keyboard))
 
 
 async def _send_attachments_zip(query, visit_id, context):
-    """تجميع مرفقات الزيارة وضغطها وإرسالها"""
     attachments = execute_query(
         "SELECT file_id, file_type, file_name, caption FROM Attachments WHERE visit_id = ?",
         (visit_id,), fetch=True
     )
     if not attachments:
-        await query.edit_message_text("⚠️ لا توجد مرفقات لهذه الزيارة.")
+        await query.edit_message_text("⚠️ لا توجد مرفقات.")
         return
 
-    await query.edit_message_text(f"📦 جاري تجميع {len(attachments)} مرفق وضغطها...")
+    await query.edit_message_text(f"📦 جاري تجميع {len(attachments)} مرفق...")
 
     visit_info = execute_query("SELECT institution_name FROM Visits WHERE id = ?", (visit_id,), fetch=True)
     inst_name = visit_info[0][0] if visit_info else f"زيارة_{visit_id}"
 
     zip_buffer = io.BytesIO()
-    errors = 0
-    success_count = 0
+    errors = success_count = 0
 
     with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
         for i, (file_id, file_type, file_name, caption) in enumerate(attachments, 1):
             try:
-                # تحميل الملف من تيليغرام مع معالجة أخطاء الشبكة
                 file_obj = await context.bot.get_file(file_id)
-                file_url = file_obj.file_path
-                
-                # Retry logic مع timeout محسّن
-                max_retries = 3
-                for attempt in range(max_retries):
+                for attempt in range(3):
                     try:
-                        response = requests.get(file_url, timeout=30)
+                        response = requests.get(file_obj.file_path, timeout=30)
                         response.raise_for_status()
                         file_data = response.content
                         break
-                    except requests.exceptions.Timeout:
-                        logger.warning(f"Timeout downloading file {file_id}, attempt {attempt + 1}/{max_retries}")
-                        if attempt == max_retries - 1:
-                            raise
-                        await asyncio.sleep(2 ** attempt)  # Exponential backoff
-                    except requests.exceptions.RequestException as e:
-                        logger.warning(f"Error downloading file {file_id}: {e}, attempt {attempt + 1}/{max_retries}")
-                        if attempt == max_retries - 1:
+                    except requests.exceptions.RequestException:
+                        if attempt == 2:
                             raise
                         await asyncio.sleep(2 ** attempt)
 
-                safe_name = f"{i:03d}_{file_name or file_id[:8]}"
-                zf.writestr(safe_name, file_data)
-                success_count += 1
-
-                # إضافة ملف وصف إن وُجد
+                zf.writestr(f"{i:03d}_{file_name or file_id[:8]}", file_data)
                 if caption:
                     zf.writestr(f"{i:03d}_description.txt", caption.encode('utf-8'))
+                success_count += 1
             except Exception as e:
                 logger.error(f"Failed to download attachment {file_id}: {e}")
                 errors += 1
 
     zip_buffer.seek(0)
-    zip_name = f"مرفقات_{inst_name}.zip"
-
     await context.bot.send_document(
         chat_id=query.message.chat_id,
         document=zip_buffer,
-        filename=zip_name,
-        caption=f"📦 مرفقات زيارة: {inst_name}\n"
-                f"✅ {success_count} ملف\n"
-                f"{'⚠️ ' + str(errors) + ' ملفات تعذر تحميلها' if errors else ''}"
+        filename=f"مرفقات_{inst_name}.zip",
+        caption=f"📦 {inst_name}\n✅ {success_count} ملف\n{'⚠️ ' + str(errors) + ' تعذر تحميلها' if errors else ''}"
     )
 
 
 # ==========================================
-# 9. الإلغاء
+# 10. الإلغاء والمساعدة
 # ==========================================
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    if context.user_data.get('report_visit_id') and any(k in context.user_data for k in ('current_axis', 'current_section', 'current_notes', 'current_rec_dest')):
+    if context.user_data.get('report_visit_id') and any(
+        k in context.user_data for k in ('current_axis', 'current_section', 'current_notes', 'current_rec_dest')
+    ):
         state = context.user_data.get('current_state', AXIS_NAME)
         save_draft(user.id, context.user_data['report_visit_id'], user.full_name, state, context.user_data)
-        cancel_text = "💾 تم حفظ المسودة عند الإلغاء. يمكنك العودة لاحقاً."
+        cancel_text = "💾 تم حفظ المسودة عند الإلغاء."
     else:
         cancel_text = "❌ تم الإلغاء."
 
-    if is_admin(user.id):
-        kb = ADMIN_MENU_KB
-    else:
-        kb = MEMBER_MENU_KB
-    await update.message.reply_text(
-        cancel_text,
-        reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True)
-    )
+    kb = ADMIN_MENU_KB if is_admin(user.id) else MEMBER_MENU_KB
+    await update.message.reply_text(cancel_text, reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True))
     return ConversationHandler.END
 
 
@@ -1930,22 +1626,22 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logger.exception("Unhandled exception in Telegram bot handler")
     try:
         if isinstance(update, Update) and update.effective_message:
-            await update.effective_message.reply_text(
-                "⚠️ حدث خطأ غير متوقع. حاول مرة أخرى لاحقاً."
-            )
+            await update.effective_message.reply_text("⚠️ حدث خطأ غير متوقع. حاول مرة أخرى.")
     except Exception:
         logger.exception("Failed to notify user about the error")
 
 
 async def show_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "💡 كيفية استخدام البوت:\n"
-        "1. اختر المحور أو أضف مرفقاً مباشرة.\n"
-        "2. إذا اخترت المعلومات العامة، اختر الحقل وأرسل القيمة.\n"
-        "3. إذا اخترت محوراً آخر، اكتب الملاحظة ثم اختر جهة الإيعاز.\n"
-        "4. اختر لا توجد توصية إذا لا تحتاج توجيه.\n"
-        "5. يمكنك حفظ المسودة أو إنهاء الإدخال في أي وقت.\n"
-        "للمساعدة أضف \"رجوع الى القائمة السابقة\" في أي شاشة للعودة بسرعة.",
+        "💡 <b>كيفية استخدام البوت:</b>\n\n"
+        "1️⃣ اضغط <b>ابدأ تقرير جديد</b> للدخول لآخر زيارة مفتوحة.\n"
+        "2️⃣ أدخل اسمك الثلاثي والمسمى الوظيفي.\n"
+        "3️⃣ اختر المحور ثم القسم وأدخل الملاحظات.\n"
+        "4️⃣ اختر جهة الإيعاز وأضف التوصيات.\n"
+        "5️⃣ يمكنك حفظ مسودة والعودة لاحقاً.\n"
+        "6️⃣ اضغط <b>إنهاء الإدخال</b> عند الانتهاء.\n\n"
+        "📎 يمكنك إرفاق صور وملفات في أي وقت.",
+        parse_mode="HTML",
         reply_markup=ReplyKeyboardMarkup(MEMBER_MENU_KB if not is_admin(update.effective_user.id) else ADMIN_MENU_KB, resize_keyboard=True)
     )
 
@@ -1958,8 +1654,7 @@ def main():
     application = Application.builder().token(TOKEN).build()
     _schedule_pending_reminders(application)
 
-
-    # --- إنشاء زيارة (محادثة) ---
+    # --- تعريف الـ handlers ---
     visit_creator = ConversationHandler(
         entry_points=[
             CommandHandler('create_visit', create_visit_start),
@@ -1967,13 +1662,13 @@ def main():
         ],
         states={
             INSTITUTION_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, get_institution_name)],
-            VISIT_DATE:       [MessageHandler(filters.TEXT & ~filters.COMMAND, get_visit_date)],  # ← نصي بدل callback
+            VISIT_DATE:       [MessageHandler(filters.TEXT & ~filters.COMMAND, get_visit_date)],
             VISIT_TYPE:       [MessageHandler(filters.TEXT & ~filters.COMMAND, get_visit_type)],
             SCHEDULE_DATE:    [MessageHandler(filters.TEXT & ~filters.COMMAND, get_schedule_date)],
         },
         fallbacks=[CommandHandler('cancel', cancel)]
     )
-    # --- البحث (محادثة) ---
+
     search_handler = ConversationHandler(
         entry_points=[
             MessageHandler(filters.Regex("^🔍 البحث عن زيارة$"), search_start),
@@ -1985,25 +1680,24 @@ def main():
         fallbacks=[CommandHandler('cancel', cancel)]
     )
 
-    # --- إدخال التقرير والمرفقات (محادثة) ---
     report_handler = ConversationHandler(
         allow_reentry=True,
         entry_points=[
             CommandHandler('start', start_and_join),
-            MessageHandler(filters.Regex("^▶️ ابدأ تقرير جديد$"), start_another_report),  # ← غيّر النص
+            MessageHandler(filters.Regex("^▶️ ابدأ تقرير جديد$"), start_another_report),
             MessageHandler(filters.Regex("^⏱ استئناف المسودة$"), resume_saved_draft),
         ],
         states={
-            ENTER_MEMBER_NAME:   [MessageHandler(filters.TEXT & ~filters.COMMAND, save_member_name)],
-            ENTER_JOB_TITLE:     [MessageHandler(filters.TEXT & ~filters.COMMAND, save_member_job_title)],
-            DRAFT_RESUME:      [MessageHandler(filters.TEXT & ~filters.COMMAND, resume_draft_choice)],
-            AXIS_NAME:         [MessageHandler(filters.TEXT & ~filters.COMMAND, get_axis_name)],
-            SECTION_NAME:      [MessageHandler(filters.TEXT & ~filters.COMMAND, get_section_name)],
-            NOTES:             [MessageHandler(filters.TEXT & ~filters.COMMAND, get_notes)],
-            NOTE_CONFIRM:      [MessageHandler(filters.TEXT & ~filters.COMMAND, confirm_note_entry)],
-            REC_DESTINATION:   [MessageHandler(filters.TEXT & ~filters.COMMAND, get_rec_destination)],
-            RECOMMENDATIONS:   [MessageHandler(filters.TEXT & ~filters.COMMAND, get_recommendations)],
-            LOOP_OR_END:       [
+            ENTER_MEMBER_NAME:  [MessageHandler(filters.TEXT & ~filters.COMMAND, save_member_name)],
+            ENTER_JOB_TITLE:    [MessageHandler(filters.TEXT & ~filters.COMMAND, save_member_job_title)],
+            DRAFT_RESUME:       [MessageHandler(filters.TEXT & ~filters.COMMAND, resume_draft_choice)],
+            AXIS_NAME:          [MessageHandler(filters.TEXT & ~filters.COMMAND, get_axis_name)],
+            SECTION_NAME:       [MessageHandler(filters.TEXT & ~filters.COMMAND, get_section_name)],
+            NOTES:              [MessageHandler(filters.TEXT & ~filters.COMMAND, get_notes)],
+            NOTE_CONFIRM:       [MessageHandler(filters.TEXT & ~filters.COMMAND, lambda u, c: NOTES)],
+            REC_DESTINATION:    [MessageHandler(filters.TEXT & ~filters.COMMAND, get_rec_destination)],
+            RECOMMENDATIONS:    [MessageHandler(filters.TEXT & ~filters.COMMAND, get_recommendations)],
+            LOOP_OR_END:        [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, process_loop_choice),
                 MessageHandler(filters.PHOTO | filters.Document.ALL | filters.VIDEO, receive_attachment),
             ],
@@ -2025,7 +1719,8 @@ def main():
         },
         fallbacks=[CommandHandler('cancel', cancel)]
     )
-    
+
+    # --- إضافة الـ handlers بالترتيب الصحيح ---
     application.add_handler(visit_creator)
     application.add_handler(search_handler)
     application.add_handler(institution_handler)
@@ -2033,19 +1728,17 @@ def main():
     application.add_handler(CallbackQueryHandler(visit_callback_handler))
     application.add_error_handler(error_handler)
 
-        # --- إدارة الزيارات والإحصائيات ---
     application.add_handler(CommandHandler("visits", manage_visits))
+    application.add_handler(CommandHandler("audit", show_audit_log))
+    application.add_handler(CommandHandler('help', show_help))
     application.add_handler(MessageHandler(filters.Regex("^📋 إدارة الزيارات$"), manage_visits))
     application.add_handler(MessageHandler(filters.Regex("^📊 الإحصائيات$"), show_statistics))
-    application.add_handler(CommandHandler("audit", show_audit_log))
     application.add_handler(MessageHandler(filters.Regex("^🗂 سجل العمليات$"), show_audit_log))
-    application.add_handler(CommandHandler('help', show_help))
-    application.add_handler(MessageHandler(filters.Regex("^❓ مساعدة$"), show_help))  # ← أضف هذا
+    application.add_handler(MessageHandler(filters.Regex("^❓ مساعدة$"), show_help))
 
+    print("🤖 البوت يعمل...")
+    application.run_polling(drop_pending_updates=True)
 
-
-    print("🤖 البوت يعمل بجميع المميزات الجديدة...")
-    application.run_polling(drop_pending_updates=True) 
 
 if __name__ == '__main__':
     main()
