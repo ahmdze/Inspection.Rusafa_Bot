@@ -1174,9 +1174,7 @@ async def get_visit_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # """معالج اختيار التاريخ من التقويم المبسط"""
     query = update.callback_query
     await query.answer() # لإيقاف دائرة التحميل في زر تيليجرام
-    data = query.data
-    logger.info(f"👉 تم استلام ضغطة زر من التقويم، البيانات: {data}")
-    
+    data = query.data    
     # استخدام split('|') لتحليل البيانات بشكل صحيح
     parts = data.split('|')
     action = parts[0]
@@ -1186,39 +1184,28 @@ async def get_visit_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
         # تغيير السنة
     if action == "year":
-        year = int(parts[1])
-        month = int(parts[2])
-        reply_markup = create_calendar(year, month)
-        await query.edit_message_reply_markup(reply_markup=reply_markup)
-        logger.info(f"👉 تم تغيير السنة إلى {year}")
+        year, month = int(parts[1]), int(parts[2])
+        await query.edit_message_reply_markup(reply_markup=create_calendar(year, month))
         return VISIT_DATE
 
             # تغيير الشهر
     if action == "month":
-        year = int(parts[1])
-        month = int(parts[2])
-        reply_markup = create_calendar(year, month)
-        await query.edit_message_reply_markup(reply_markup=reply_markup)
-        logger.info(f"👉 تم تغيير الشهر إلى {year}-{month:02d}")
+        year, month = int(parts[1]), int(parts[2])
+        await query.edit_message_reply_markup(reply_markup=create_calendar(year, month))
         return VISIT_DATE
 
-            # اختيار يوم
     if action == "date":
-        date_str = parts[1]  # التاريخ مباشرة بصيغة YYYY-MM-DD
+        date_str = parts[1]
         context.user_data['visit_date'] = date_str
 
         await query.edit_message_text(text=f"✅ تم اختيار تاريخ الزيارة: {date_str}")
-        logger.info(f"👉 تم اختيار تاريخ الزيارة: {date_str}")
-
-        await query.message.reply_text("الرجاء إدخال نوع الزيارة:")
             
         kb = [["تفتيشية"], ["متابعة"], ["متابعة تنفيذ توصيات"]]
-        await update.message.reply_text(
+        await query.message.reply_text(
             "📋 اختر <b>نوع الزيارة</b>:",
             reply_markup=ReplyKeyboardMarkup(kb, one_time_keyboard=True, resize_keyboard=True),
             parse_mode="HTML"
         )
-        logging.info(f"✅ تم اختيار التاريخ ({date_str}) والانتقال للخطوة التالية بنجاح.")
         return VISIT_TYPE
         
     return VISIT_DATE
